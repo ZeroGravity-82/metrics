@@ -2,10 +2,8 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
-	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/service"
 )
 
@@ -28,26 +26,16 @@ func UpdateMetricHandler(ms service.MemStorage) http.Handler {
 			return
 		}
 
-		metricValue := pathParts[4]
-		valueInt64, errInt64 := strconv.ParseInt(metricValue, 10, 64)
-		valueFloat64, errFloat64 := strconv.ParseFloat(metricValue, 64)
-		var delta *int64
-		if errInt64 == nil {
-			delta = &valueInt64
-		}
-		var value *float64
-		if errFloat64 == nil {
-			value = &valueFloat64
-		}
-		metric := model.Metric{
-			ID:    pathParts[3],
-			MType: pathParts[2],
-			Delta: delta,
-			Value: value,
-			Hash:  "", // Пока не понятно, как и где формируется этот хэш
+		method := pathParts[1]
+		if method != "update" {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
 		}
 
-		err := ms.UpdateMetric(metric)
+		mType := pathParts[2]
+		mName := pathParts[3]
+		mValue := pathParts[4]
+		err := ms.UpdateMetric(mType, mName, mValue)
 		if err != nil {
 			if mnfe, ok := err.(service.MetricNotFoundError); ok {
 				http.Error(w, mnfe.Error(), http.StatusNotFound)

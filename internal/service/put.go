@@ -2,71 +2,76 @@ package service
 
 import (
 	"fmt"
+	"strconv"
 
 	"zerogravity-82/metrics/internal/model"
 )
 
 type Storage interface {
-	UpdateMetric(value model.Metric) error
-	GetCounter(ID string) (int64, error)
-	GetGauge(ID string) (float64, error)
+	UpdateMetric(mType, mName, mValue string) error
+	GetMetric(ID string) (model.Metric, error)
 }
 
 type MemStorage struct {
-	counters map[string]int64
-	gauges   map[string]float64
+	metrics map[string]model.Metric
 }
 
 func NewMemStorage() MemStorage {
 	return MemStorage{
-		counters: make(map[string]int64),
-		gauges:   make(map[string]float64),
+		metrics: make(map[string]model.Metric),
 	}
 }
 
-func (ms MemStorage) UpdateMetric(metric model.Metric) error {
-	switch metric.MType {
+func (ms MemStorage) UpdateMetric(mType, mName, mValue string) error {
+	switch mType {
 	case model.Counter:
-		if metric.Delta == nil {
+		v, err := strconv.ParseInt(mValue, 10, 64)
+		if err != nil {
 			return InvalidMetricValueError{
 				Message: "counter delta value is invalid",
 			}
 		}
-		if _, ok := ms.counters[metric.ID]; !ok {
-			ms.counters[metric.ID] = *metric.Delta
+		metric := model.Metric{
+			ID:    mName,
+			MType: mType,
+			Delta: &v,
+			Value: nil,
+			Hash:  "",
+		}
+		if _, ok := ms.metrics[metric.ID]; !ok {
+			ms.metrics[metric.ID] = metric
 		} else {
-			ms.counters[metric.ID] += *metric.Delta
+			*ms.metrics[metric.ID].Delta += *metric.Delta
 		}
 		return nil
 	case model.Gauge:
-		if metric.Value == nil {
+		v, err := strconv.ParseFloat(mValue, 64)
+		if err != nil {
 			return InvalidMetricValueError{
 				Message: "gauge value is invalid",
 			}
 		}
-		ms.gauges[metric.ID] = *metric.Value
+		metric := model.Metric{
+			ID:    mName,
+			MType: mType,
+			Delta: nil,
+			Value: &v,
+			Hash:  "",
+		}
+		ms.metrics[metric.ID] = metric
 		return nil
 	default:
 		return UnsupportedMetricTypeError{
 			Message: "unsupported metric type",
 		}
 	}
+
 }
 
-func (ms MemStorage) GetCounter(ID string) (int64, error) {
-	if v, ok := ms.counters[ID]; !ok {
-		return 0, MetricNotFoundError{
-			Message: fmt.Sprintf("counter with ID: %s not found", ID),
-		}
-	} else {
-		return v, nil
-	}
-}
-
-func (ms MemStorage) GetGauge(ID string) (float64, error) {
-	if v, ok := ms.gauges[ID]; !ok {
-		return 0.0, MetricNotFoundError{
-			Message: fmt.Sprintf("gauge with ID: %s not found", ID),
+func (ms MemStorage) GetMetric(ID string) (model.Metric, error) {
+	if v, ok := ms.metrics[ID]; !ok {
+		return model.Metric{}, MetricNotFoundError{
+			Message: fmt.Sprintf("metric with ID: %s not found", ID),
 		}
 	} else {
 		return v, nil
