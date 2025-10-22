@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	serverBaseURL  string        = "http://localhost:8080"
 	pollInterval   time.Duration = time.Second * 2
 	reportInterval time.Duration = time.Second * 13
 )
@@ -28,18 +29,18 @@ func Run() {
 
 	lastSentTime := time.Now()
 	for {
-		poll(&m)
+		pollMetrics(&m)
 		time.Sleep(pollInterval)
 
 		if time.Now().Sub(lastSentTime) >= reportInterval {
 			lastSentTime = time.Now()
-			report(&m)
+			sendReport(serverBaseURL, &m)
 			m.pollCount = 0
 		}
 	}
 }
 
-func poll(m *metrics) {
+func pollMetrics(m *metrics) {
 	memStats := runtime.MemStats{}
 	runtime.ReadMemStats(&memStats)
 
@@ -74,25 +75,25 @@ func poll(m *metrics) {
 	m.randomValue = rand.Uint32()
 }
 
-func report(m *metrics) {
+func sendReport(serverBaseURL string, m *metrics) {
 	for name, value := range m.memStat {
-		err := sendMetric(model.Gauge, name, value)
+		err := sendMetric(serverBaseURL, model.Gauge, name, value)
 		if err != nil {
 			logError(model.Gauge, name, value, err)
 		}
 	}
-	err := sendMetric(model.Counter, "PollCount", m.pollCount)
+	err := sendMetric(serverBaseURL, model.Counter, "PollCount", m.pollCount)
 	if err != nil {
 		logError(model.Gauge, "PollCount", m.pollCount, err)
 	}
-	err = sendMetric(model.Gauge, "RandomValue", m.randomValue)
+	err = sendMetric(serverBaseURL, model.Gauge, "RandomValue", m.randomValue)
 	if err != nil {
 		logError(model.Gauge, "RandomValue", m.randomValue, err)
 	}
 }
 
-func sendMetric(mType, mName string, mValue any) error {
-	url := fmt.Sprintf("http://localhost:8080/update/%s/%s/%v", mType, mName, mValue)
+func sendMetric(serverBaseURL, mType, mName string, mValue any) error {
+	url := fmt.Sprintf("%s/update/%s/%s/%v", serverBaseURL, mType, mName, mValue)
 	response, err := http.Post(url, "text/plain", http.NoBody)
 	if err != nil {
 		return err
