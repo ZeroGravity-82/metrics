@@ -58,6 +58,7 @@ func TestSendReport(t *testing.T) {
 	m.memStat = make(map[string]any)
 	pollMetrics(&m)
 
+	sentMetricsCnt := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Assert
 		pathParts := strings.Split(r.URL.Path, "/")
@@ -78,12 +79,18 @@ func TestSendReport(t *testing.T) {
 		default:
 			assert.Equal(t, model.Gauge, mType)
 			assert.Equal(t, toString(m.memStat[mName]), mValue)
+			assert.NotNil(t, m.memStat[mName])
+			m.memStat[mName] = nil // Гарантирует, что каждая метрика отправлена не более одного раза
 		}
+		sentMetricsCnt++
 	}))
 	defer server.Close()
 
 	// Act
 	sendReport(server.URL, &m)
+
+	// Assert
+	assert.Equal(t, len(m.memStat)+2, sentMetricsCnt)
 }
 
 func toString(v any) string {
