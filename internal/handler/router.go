@@ -7,7 +7,7 @@ import (
 	"zerogravity-82/metrics/internal/service"
 )
 
-func UpdateMetricHandler(ms service.MemStorage) http.Handler {
+func UpdateMetricHandler(s service.Storage) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -35,7 +35,7 @@ func UpdateMetricHandler(ms service.MemStorage) http.Handler {
 		mType := pathParts[2]
 		mName := pathParts[3]
 		mValue := pathParts[4]
-		err := ms.UpdateMetric(mType, mName, mValue)
+		err := s.UpdateMetric(mType, mName, mValue)
 		if err != nil {
 			if mnfe, ok := err.(service.MetricNotFoundError); ok {
 				http.Error(w, mnfe.Error(), http.StatusNotFound)
