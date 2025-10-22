@@ -29,9 +29,6 @@ func Run() {
 	lastSentTime := time.Now()
 	for {
 		poll(&m)
-
-		fmt.Println(m.pollCount)
-
 		time.Sleep(pollInterval)
 
 		if time.Now().Sub(lastSentTime) >= reportInterval {
