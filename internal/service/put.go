@@ -23,6 +23,12 @@ func NewMemStorage() MemStorage {
 }
 
 func (ms MemStorage) UpdateMetric(mType, mName, mValue string) error {
+	if len(mName) == 0 {
+		return MetricNotFoundError{
+			Message: "metric with empty name",
+		}
+	}
+
 	switch mType {
 	case model.Counter:
 		v, err := strconv.ParseInt(mValue, 10, 64)
