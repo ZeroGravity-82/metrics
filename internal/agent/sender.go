@@ -35,7 +35,6 @@ func Run() {
 		if time.Now().Sub(lastSentTime) >= reportInterval {
 			lastSentTime = time.Now()
 			sendReport(serverBaseURL, &m)
-			m.pollCount = 0
 		}
 	}
 }
@@ -82,10 +81,13 @@ func sendReport(serverBaseURL string, m *metrics) {
 			logError(model.Gauge, name, value, err)
 		}
 	}
+
 	err := sendMetric(serverBaseURL, model.Counter, "PollCount", m.pollCount)
 	if err != nil {
 		logError(model.Gauge, "PollCount", m.pollCount, err)
 	}
+	m.pollCount = 0
+
 	err = sendMetric(serverBaseURL, model.Gauge, "RandomValue", m.randomValue)
 	if err != nil {
 		logError(model.Gauge, "RandomValue", m.randomValue, err)
