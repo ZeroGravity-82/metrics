@@ -26,9 +26,9 @@ func UpdateMetricHandler(s service.Storage) http.Handler {
 			return
 		}
 
-		method := pathParts[1]
-		if method != "update" {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		action := pathParts[1]
+		if action != "update" {
+			http.Error(w, "Unsupported action", http.StatusNotFound)
 			return
 		}
 
