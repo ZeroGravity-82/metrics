@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net/http"
 	"runtime"
 	"time"
+
+	"github.com/go-resty/resty/v2"
 
 	"zerogravity-82/metrics/internal/model"
 )
@@ -27,6 +28,7 @@ func Run() {
 	m := metrics{}
 	m.memStat = make(map[string]any)
 
+	httpClient := resty.New()
 	lastSentTime := time.Now()
 	for {
 		pollMetrics(&m)
@@ -34,7 +36,7 @@ func Run() {
 
 		if time.Now().Sub(lastSentTime) >= reportInterval {
 			lastSentTime = time.Now()
-			sendReport(serverBaseURL, &m)
+			sendReport(serverBaseURL, &m, httpClient)
 		}
 	}
 }
@@ -74,33 +76,32 @@ func pollMetrics(m *metrics) {
 	m.randomValue = rand.Uint32()
 }
 
-func sendReport(serverBaseURL string, m *metrics) {
+func sendReport(serverBaseURL string, m *metrics, httpClient *resty.Client) {
 	for name, value := range m.memStat {
-		err := sendMetric(serverBaseURL, model.Gauge, name, value)
+		err := sendMetric(serverBaseURL, model.Gauge, name, value, httpClient)
 		if err != nil {
 			logError(model.Gauge, name, value, err)
 		}
 	}
 
-	err := sendMetric(serverBaseURL, model.Counter, "PollCount", m.pollCount)
+	err := sendMetric(serverBaseURL, model.Counter, "PollCount", m.pollCount, httpClient)
 	if err != nil {
 		logError(model.Gauge, "PollCount", m.pollCount, err)
 	}
 	m.pollCount = 0
 
-	err = sendMetric(serverBaseURL, model.Gauge, "RandomValue", m.randomValue)
+	err = sendMetric(serverBaseURL, model.Gauge, "RandomValue", m.randomValue, httpClient)
 	if err != nil {
 		logError(model.Gauge, "RandomValue", m.randomValue, err)
 	}
 }
 
-func sendMetric(serverBaseURL, mType, mName string, mValue any) error {
+func sendMetric(serverBaseURL, mType, mName string, mValue any, httpClient *resty.Client) error {
 	url := fmt.Sprintf("%s/update/%s/%s/%v", serverBaseURL, mType, mName, mValue)
-	response, err := http.Post(url, "text/plain", http.NoBody)
+	_, err := httpClient.R().SetHeader("Content-Type", "text/plain").Post(url)
 	if err != nil {
 		return err
 	}
-	response.Body.Close()
 	return nil
 }
 

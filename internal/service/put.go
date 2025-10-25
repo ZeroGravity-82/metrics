@@ -9,16 +9,20 @@ import (
 
 type Storage interface {
 	UpdateMetric(mType, mName, mValue string) error
-	GetMetric(ID string) (model.Metric, error)
+	GetCounterMetric(ID string) (model.CounterMetric, error)
+	GetGaugeMetric(ID string) (model.GaugeMetric, error)
+	GetAll() ([]model.CounterMetric, []model.GaugeMetric)
 }
 
 type MemStorage struct {
-	metrics map[string]model.Metric
+	counters map[string]model.CounterMetric
+	gauges   map[string]model.GaugeMetric
 }
 
 func NewMemStorage() MemStorage {
 	return MemStorage{
-		metrics: make(map[string]model.Metric),
+		counters: make(map[string]model.CounterMetric),
+		gauges:   make(map[string]model.GaugeMetric),
 	}
 }
 
@@ -37,17 +41,20 @@ func (ms MemStorage) UpdateMetric(mType, mName, mValue string) error {
 				Message: "counter delta value is invalid",
 			}
 		}
-		metric := model.Metric{
-			ID:    mName,
-			MType: mType,
-			Delta: &v,
-			Value: nil,
-			Hash:  "",
+		m := model.CounterMetric{
+			Metric: model.Metric{
+				ID:    mName,
+				MType: mType,
+				Hash:  "",
+			},
+			Delta: v,
 		}
-		if _, ok := ms.metrics[metric.ID]; !ok {
-			ms.metrics[metric.ID] = metric
+		if _, ok := ms.counters[m.ID]; !ok {
+			ms.counters[m.ID] = m
 		} else {
-			*ms.metrics[metric.ID].Delta += *metric.Delta
+			existedMetric := ms.counters[m.ID]
+			existedMetric.Delta += m.Delta
+			ms.counters[m.ID] = existedMetric
 		}
 		return nil
 	case model.Gauge:
@@ -57,14 +64,15 @@ func (ms MemStorage) UpdateMetric(mType, mName, mValue string) error {
 				Message: "gauge value is invalid",
 			}
 		}
-		metric := model.Metric{
-			ID:    mName,
-			MType: mType,
-			Delta: nil,
-			Value: &v,
-			Hash:  "",
+		metric := model.GaugeMetric{
+			Metric: model.Metric{
+				ID:    mName,
+				MType: mType,
+				Hash:  "",
+			},
+			Value: v,
 		}
-		ms.metrics[metric.ID] = metric
+		ms.gauges[metric.ID] = metric
 		return nil
 	default:
 		return UnsupportedMetricTypeError{
@@ -74,12 +82,34 @@ func (ms MemStorage) UpdateMetric(mType, mName, mValue string) error {
 
 }
 
-func (ms MemStorage) GetMetric(ID string) (model.Metric, error) {
-	if v, ok := ms.metrics[ID]; !ok {
-		return model.Metric{}, MetricNotFoundError{
-			Message: fmt.Sprintf("metric with ID: %s not found", ID),
+func (ms MemStorage) GetCounterMetric(ID string) (model.CounterMetric, error) {
+	if v, ok := ms.counters[ID]; !ok {
+		return model.CounterMetric{}, MetricNotFoundError{
+			Message: fmt.Sprintf("counter metric with ID: %s not found", ID),
 		}
 	} else {
 		return v, nil
 	}
+}
+
+func (ms MemStorage) GetGaugeMetric(ID string) (model.GaugeMetric, error) {
+	if v, ok := ms.gauges[ID]; !ok {
+		return model.GaugeMetric{}, MetricNotFoundError{
+			Message: fmt.Sprintf("gauge metric with ID: %s not found", ID),
+		}
+	} else {
+		return v, nil
+	}
+}
+
+func (ms MemStorage) GetAll() ([]model.CounterMetric, []model.GaugeMetric) {
+	counters := make([]model.CounterMetric, 0, len(ms.counters))
+	gauges := make([]model.GaugeMetric, 0, len(ms.gauges))
+	for _, v := range ms.counters {
+		counters = append(counters, v)
+	}
+	for _, v := range ms.gauges {
+		gauges = append(gauges, v)
+	}
+	return counters, gauges
 }

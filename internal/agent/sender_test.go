@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"zerogravity-82/metrics/internal/model"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
+
+	"zerogravity-82/metrics/internal/model"
 )
 
 func TestPollMetrics(t *testing.T) {
@@ -85,9 +87,10 @@ func TestSendReport(t *testing.T) {
 		sentMetricsCnt++
 	}))
 	defer server.Close()
+	httpClient := resty.New()
 
 	// Act
-	sendReport(server.URL, &m)
+	sendReport(server.URL, &m, httpClient)
 
 	// Assert
 	assert.Equal(t, len(m.memStat)+2, sentMetricsCnt)
