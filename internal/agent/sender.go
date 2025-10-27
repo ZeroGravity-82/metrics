@@ -9,13 +9,8 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
+	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
-)
-
-const (
-	serverBaseURL  string        = "http://localhost:8080"
-	pollInterval   time.Duration = time.Second * 2
-	reportInterval time.Duration = time.Second * 13
 )
 
 type metrics struct {
@@ -24,7 +19,7 @@ type metrics struct {
 	randomValue uint32
 }
 
-func Run() {
+func Run(cfg config.Config) {
 	m := metrics{}
 	m.memStat = make(map[string]any)
 
@@ -32,11 +27,11 @@ func Run() {
 	lastSentTime := time.Now()
 	for {
 		pollMetrics(&m)
-		time.Sleep(pollInterval)
+		time.Sleep(time.Duration(*cfg.PollInterval) * time.Second)
 
-		if time.Now().Sub(lastSentTime) >= reportInterval {
+		if time.Now().Sub(lastSentTime) >= time.Duration(*cfg.ReportInterval)*time.Second {
 			lastSentTime = time.Now()
-			sendReport(serverBaseURL, &m, httpClient)
+			sendReport(*cfg.ServerAddr, &m, httpClient)
 		}
 	}
 }
@@ -76,28 +71,28 @@ func pollMetrics(m *metrics) {
 	m.randomValue = rand.Uint32()
 }
 
-func sendReport(serverBaseURL string, m *metrics, httpClient *resty.Client) {
+func sendReport(serverAddr string, m *metrics, httpClient *resty.Client) {
 	for name, value := range m.memStat {
-		err := sendMetric(serverBaseURL, model.Gauge, name, value, httpClient)
+		err := sendMetric(serverAddr, model.Gauge, name, value, httpClient)
 		if err != nil {
 			logError(model.Gauge, name, value, err)
 		}
 	}
 
-	err := sendMetric(serverBaseURL, model.Counter, "PollCount", m.pollCount, httpClient)
+	err := sendMetric(serverAddr, model.Counter, "PollCount", m.pollCount, httpClient)
 	if err != nil {
 		logError(model.Gauge, "PollCount", m.pollCount, err)
 	}
 	m.pollCount = 0
 
-	err = sendMetric(serverBaseURL, model.Gauge, "RandomValue", m.randomValue, httpClient)
+	err = sendMetric(serverAddr, model.Gauge, "RandomValue", m.randomValue, httpClient)
 	if err != nil {
 		logError(model.Gauge, "RandomValue", m.randomValue, err)
 	}
 }
 
 func sendMetric(serverBaseURL, mType, mName string, mValue any, httpClient *resty.Client) error {
-	url := fmt.Sprintf("%s/update/%s/%s/%v", serverBaseURL, mType, mName, mValue)
+	url := fmt.Sprintf("http://%s/update/%s/%s/%v", serverBaseURL, mType, mName, mValue)
 	_, err := httpClient.R().SetHeader("Content-Type", "text/plain").Post(url)
 	if err != nil {
 		return err
