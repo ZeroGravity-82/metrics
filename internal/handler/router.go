@@ -95,13 +95,13 @@ func buildHtml(counters []model.CounterMetric, gauges []model.GaugeMetric) strin
 	if gaugeList == "" {
 		gaugeList = `<i>No gauges yet</i>`
 	}
-	html := getMetricListHtmlTemplate()
+	html := getMetricListHTMLTemplate()
 	html = strings.Replace(html, "{{counterList}}", counterList, 1)
 	html = strings.Replace(html, "{{gaugeList}}", gaugeList, 1)
 	return html
 }
 
-func getMetricListHtmlTemplate() string {
+func getMetricListHTMLTemplate() string {
 	return `<!DOCTYPE html>
 <html lang="ru">
 <head>
