@@ -76,12 +76,12 @@ func getMetricHandler(s service.Storage) http.HandlerFunc {
 func getMetricListHandler(s service.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		counters, gauges := s.GetAll()
-		html := buildHtml(counters, gauges)
+		html := buildHTML(counters, gauges)
 		_, _ = io.WriteString(w, html)
 	}
 }
 
-func buildHtml(counters []model.CounterMetric, gauges []model.GaugeMetric) string {
+func buildHTML(counters []model.CounterMetric, gauges []model.GaugeMetric) string {
 	var counterList, gaugeList string
 	for _, c := range counters {
 		counterList += fmt.Sprintf("<li>%s: %v</li>", c.ID, c.Delta)
