@@ -13,6 +13,6 @@ func main() {
 	cfg := config.ParseFlags()
 	ms := service.NewMemStorage()
 	serverAddr := *cfg.ServerAddr
-	log.Printf("Сервер запущен на %s...", serverAddr)
+	log.Printf("Server started at %s...", serverAddr)
 	log.Fatal(http.ListenAndServe(serverAddr, handler.MetricRouter(ms)))
 }
