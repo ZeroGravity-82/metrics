@@ -29,7 +29,7 @@ func Run(cfg config.Config) {
 		pollMetrics(&m)
 		time.Sleep(time.Duration(*cfg.PollInterval) * time.Second)
 
-		if time.Now().Sub(lastSentTime) >= time.Duration(*cfg.ReportInterval)*time.Second {
+		if time.Since(lastSentTime) >= time.Duration(*cfg.ReportInterval)*time.Second {
 			lastSentTime = time.Now()
 			sendReport(*cfg.ServerAddr, &m, httpClient)
 		}
