@@ -12,5 +12,7 @@ import (
 func main() {
 	cfg := config.ParseFlags()
 	ms := service.NewMemStorage()
-	log.Fatal(http.ListenAndServe(*cfg.ServerAddr, handler.MetricRouter(ms)))
+	serverAddr := *cfg.ServerAddr
+	log.Printf("Сервер запущен на %s...", serverAddr)
+	log.Fatal(http.ListenAndServe(serverAddr, handler.MetricRouter(ms)))
 }
