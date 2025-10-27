@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -92,12 +93,32 @@ func sendReport(serverAddr string, m *metrics, httpClient *resty.Client) {
 }
 
 func sendMetric(serverAddr, mType, mName string, mValue any, httpClient *resty.Client) error {
+	serverAddr, err := addDefaultURLSchema(serverAddr)
+	if err != nil {
+		return err
+	}
 	url := fmt.Sprintf("%s/update/%s/%s/%v", serverAddr, mType, mName, mValue)
-	_, err := httpClient.R().SetHeader("Content-Type", "text/plain").Post(url)
+	_, err = httpClient.R().SetHeader("Content-Type", "text/plain").Post(url)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func addDefaultURLSchema(URL string) (string, error) {
+	if strings.HasPrefix(URL, "https://") || strings.HasPrefix(URL, "http://") {
+		return URL, nil
+	}
+	hp := strings.Split(URL, ":")
+	host := hp[0]
+	port := hp[1]
+	urlPrefix := ""
+	if host == "localhost" {
+		urlPrefix = "http://"
+	} else {
+		urlPrefix = "https://"
+	}
+	return urlPrefix + host + ":" + port, nil
 }
 
 func logError(mType, mName string, mValue any, err error) {
