@@ -91,8 +91,8 @@ func sendReport(serverAddr string, m *metrics, httpClient *resty.Client) {
 	}
 }
 
-func sendMetric(serverBaseURL, mType, mName string, mValue any, httpClient *resty.Client) error {
-	url := fmt.Sprintf("http://%s/update/%s/%s/%v", serverBaseURL, mType, mName, mValue)
+func sendMetric(serverAddr, mType, mName string, mValue any, httpClient *resty.Client) error {
+	url := fmt.Sprintf("%s/update/%s/%s/%v", serverAddr, mType, mName, mValue)
 	_, err := httpClient.R().SetHeader("Content-Type", "text/plain").Post(url)
 	if err != nil {
 		return err
