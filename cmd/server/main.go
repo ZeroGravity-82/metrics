@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
 
@@ -13,6 +14,9 @@ func main() {
 	cfg := config.ParseFlags()
 	ms := service.NewMemStorage()
 	serverAddr := *cfg.ServerAddr
-	log.Printf("Server started at %s...", serverAddr)
-	log.Fatal(http.ListenAndServe(serverAddr, handler.MetricRouter(ms)))
+	log.Printf("server started on %s...", serverAddr)
+	err := http.ListenAndServe(serverAddr, handler.MetricRouter(ms))
+	if !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
 }
