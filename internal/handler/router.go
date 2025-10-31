@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -41,6 +42,7 @@ func updateMetricHandler(s service.Storage) http.HandlerFunc {
 				http.Error(w, imve.Error(), http.StatusBadRequest)
 				return
 			}
+			log.Printf("update metric error: %v", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 	}
