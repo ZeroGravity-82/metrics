@@ -122,5 +122,5 @@ func addDefaultURLSchema(URL string) (string, error) {
 }
 
 func logError(mType, mName string, mValue any, err error) {
-	log.Printf("Error on sending metric '%s' of type '%s' with value '%d': %v", mName, mType, mValue, err)
+	log.Printf("error on sending metric '%s' of type '%s' with value '%d': %v", mName, mType, mValue, err)
 }
