@@ -28,11 +28,13 @@ func Run(cfg config.Config) {
 	lastSentTime := time.Now()
 	for {
 		pollMetrics(&m)
+		m.pollCount++
 		time.Sleep(time.Duration(*cfg.PollInterval) * time.Second)
 
 		if time.Since(lastSentTime) >= time.Duration(*cfg.ReportInterval)*time.Second {
 			lastSentTime = time.Now()
 			sendReport(*cfg.ServerAddr, &m, httpClient)
+			m.pollCount = 0
 		}
 	}
 }
@@ -68,7 +70,6 @@ func pollMetrics(m *metrics) {
 	m.memStat["StackSys"] = memStats.StackSys
 	m.memStat["Sys"] = memStats.Sys
 	m.memStat["TotalAlloc"] = memStats.TotalAlloc
-	m.pollCount++
 	m.randomValue = rand.Uint32()
 }
 
@@ -84,7 +85,6 @@ func sendReport(serverAddr string, m *metrics, httpClient *resty.Client) {
 	if err != nil {
 		logError(model.Gauge, "PollCount", m.pollCount, err)
 	}
-	m.pollCount = 0
 
 	err = sendMetric(serverAddr, model.Gauge, "RandomValue", m.randomValue, httpClient)
 	if err != nil {

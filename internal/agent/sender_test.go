@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"zerogravity-82/metrics/internal/model"
 )
@@ -50,7 +50,6 @@ func TestPollMetrics(t *testing.T) {
 	assert.IsType(t, uint64(0), m.memStat["StackSys"])
 	assert.IsType(t, uint64(0), m.memStat["Sys"])
 	assert.IsType(t, uint64(0), m.memStat["TotalAlloc"])
-	assert.Equal(t, uint64(1), m.pollCount)
 	assert.IsType(t, uint32(0), m.randomValue)
 }
 
