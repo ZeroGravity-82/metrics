@@ -60,14 +60,16 @@ func getMetricHandler(s service.Storage) http.HandlerFunc {
 				http.Error(w, mnfe.Error(), http.StatusNotFound)
 				return
 			}
-			_, _ = io.WriteString(w, fmt.Sprintf("%v", metric.Delta))
+			_, err = io.WriteString(w, fmt.Sprintf("%v", metric.Delta))
+			log.Printf("error during writing response: %v", err)
 		case model.Gauge:
 			metric, err := s.GetGaugeMetric(mName)
 			if mnfe, ok := err.(service.MetricNotFoundError); ok {
 				http.Error(w, mnfe.Error(), http.StatusNotFound)
 				return
 			}
-			_, _ = io.WriteString(w, fmt.Sprintf("%v", metric.Value))
+			_, err = io.WriteString(w, fmt.Sprintf("%v", metric.Value))
+			log.Printf("error during writing response: %v", err)
 		default:
 			http.Error(w, "unsupported metric type", http.StatusBadRequest)
 			return
@@ -79,7 +81,8 @@ func getMetricListHandler(s service.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		counters, gauges := s.GetAll()
 		html := buildHTML(counters, gauges)
-		_, _ = io.WriteString(w, html)
+		_, err := io.WriteString(w, html)
+		log.Printf("error during writing response: %v", err)
 	}
 }
 
