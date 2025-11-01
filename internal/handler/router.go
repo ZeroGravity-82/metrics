@@ -2,10 +2,10 @@ package handler
 
 import (
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -79,35 +79,13 @@ func getMetricHandler(s service.Storage) http.HandlerFunc {
 
 func getMetricListHandler(s service.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		counters, gauges := s.GetAll()
-		html := buildHTML(counters, gauges)
-		_, err := io.WriteString(w, html)
-		log.Printf("error during writing response: %v", err)
-	}
-}
-
-func buildHTML(counters []model.CounterMetric, gauges []model.GaugeMetric) string {
-	var counterList, gaugeList string
-	for _, c := range counters {
-		counterList += fmt.Sprintf("<li>%s: %v</li>", c.ID, c.Delta)
-	}
-	for _, g := range gauges {
-		gaugeList += fmt.Sprintf("<li>%s: %v</li>", g.ID, g.Value)
-	}
-	if counterList == "" {
-		counterList = `<i>No counters yet</i>`
-	}
-	if gaugeList == "" {
-		gaugeList = `<i>No gauges yet</i>`
-	}
-	html := getMetricListHTMLTemplate()
-	html = strings.Replace(html, "{{counterList}}", counterList, 1)
-	html = strings.Replace(html, "{{gaugeList}}", gaugeList, 1)
-	return html
-}
-
-func getMetricListHTMLTemplate() string {
-	return `<!DOCTYPE html>
+		var data struct {
+			Counters []model.CounterMetric
+			Gauges   []model.GaugeMetric
+		}
+		data.Counters, data.Gauges = s.GetAll()
+		t := template.Must(template.New("metricList").Parse(`
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -116,9 +94,30 @@ func getMetricListHTMLTemplate() string {
 </head>
 <body>
 	<p>Counters:</p>
-    <ul>{{counterList}}</ul>
+	{{if .Counters}}
+		<ul>
+		{{range .Counters}}
+			<li>{{.ID}}: {{.Delta}}</li>
+		{{end}}
+		</ul>
+	{{else}}
+        <i>No counters yet</i>
+	{{end}}
 	<p>Gauges:</p>
-	<ul>{{gaugeList}}</ul>
+    {{if .Gauges}}
+		<ul>
+		{{range .Gauges}}
+			<li>{{.ID}}: {{.Value}}</li>
+		{{end}}
+		</ul>
+	{{else}}
+		<i>No gauges yet</i>
+	{{end}}
 </body>
-</html>`
+</html>
+`))
+		if err := t.Execute(w, data); err != nil {
+			log.Printf("error during writing response: %v", err)
+		}
+	}
 }

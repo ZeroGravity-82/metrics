@@ -242,7 +242,7 @@ func TestGetMetricListHandler(t *testing.T) {
 				assert.Contains(t, bodyString, "BuckHashSys: 3342")
 				assert.Contains(t, bodyString, "OtherSys: 606658")
 				assert.Contains(t, bodyString, "PollCount: 777777777777777")
-				assert.Contains(t, bodyString, "RandomValue: 3.685246675e+09")
+				assert.Contains(t, bodyString, "RandomValue: 3.685246675e&#43;09")
 				assert.Contains(t, bodyString, "GCCPUFraction: 1.2345678912345e-07")
 			}
 		})
