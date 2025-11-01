@@ -8,13 +8,6 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
-type Storage interface {
-	UpdateMetric(mType, mName, mValue string) error
-	GetCounterMetric(ID string) (model.CounterMetric, error)
-	GetGaugeMetric(ID string) (model.GaugeMetric, error)
-	GetAll() ([]model.CounterMetric, []model.GaugeMetric)
-}
-
 type MemStorage struct {
 	counters map[string]model.CounterMetric
 	gauges   map[string]model.GaugeMetric

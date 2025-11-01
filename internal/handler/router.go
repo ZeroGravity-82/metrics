@@ -14,7 +14,14 @@ import (
 	"zerogravity-82/metrics/internal/service"
 )
 
-func MetricRouter(s service.Storage) chi.Router {
+type Storage interface {
+	UpdateMetric(mType, mName, mValue string) error
+	GetCounterMetric(ID string) (model.CounterMetric, error)
+	GetGaugeMetric(ID string) (model.GaugeMetric, error)
+	GetAll() ([]model.CounterMetric, []model.GaugeMetric)
+}
+
+func MetricRouter(s Storage) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.AllowContentType("text/plain"))
 	r.Post("/update/{mType}/{mName}/{mValue}", updateMetricHandler(s))
@@ -23,7 +30,7 @@ func MetricRouter(s service.Storage) chi.Router {
 	return r
 }
 
-func updateMetricHandler(s service.Storage) http.HandlerFunc {
+func updateMetricHandler(s Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		mType := chi.URLParam(r, "mType")
 		mName := chi.URLParam(r, "mName")
@@ -48,7 +55,7 @@ func updateMetricHandler(s service.Storage) http.HandlerFunc {
 	}
 }
 
-func getMetricHandler(s service.Storage) http.HandlerFunc {
+func getMetricHandler(s Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		mType := chi.URLParam(r, "mType")
 		mName := chi.URLParam(r, "mName")
@@ -77,7 +84,7 @@ func getMetricHandler(s service.Storage) http.HandlerFunc {
 	}
 }
 
-func getMetricListHandler(s service.Storage) http.HandlerFunc {
+func getMetricListHandler(s Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var data struct {
 			Counters []model.CounterMetric
