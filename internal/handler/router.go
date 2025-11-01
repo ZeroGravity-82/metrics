@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -37,16 +38,16 @@ func updateMetricHandler(s Storage) http.HandlerFunc {
 		mValue := chi.URLParam(r, "mValue")
 		err := s.UpdateMetric(mType, mName, mValue)
 		if err != nil {
-			if mnfe, ok := err.(service.MetricNotFoundError); ok {
-				http.Error(w, mnfe.Error(), http.StatusNotFound)
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if umte, ok := err.(service.UnsupportedMetricTypeError); ok {
-				http.Error(w, umte.Error(), http.StatusBadRequest)
+			if errors.Is(err, service.ErrUnsupportedMetricType) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if imve, ok := err.(service.InvalidMetricValueError); ok {
-				http.Error(w, imve.Error(), http.StatusBadRequest)
+			if errors.Is(err, service.ErrInvalidMetricValue) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 			log.Printf("update metric error: %v", err)
@@ -63,16 +64,16 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 		switch mType {
 		case model.Counter:
 			metric, err := s.GetCounterMetric(mName)
-			if mnfe, ok := err.(service.MetricNotFoundError); ok {
-				http.Error(w, mnfe.Error(), http.StatusNotFound)
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
 			_, err = io.WriteString(w, fmt.Sprintf("%v", metric.Delta))
 			log.Printf("error during writing response: %v", err)
 		case model.Gauge:
 			metric, err := s.GetGaugeMetric(mName)
-			if mnfe, ok := err.(service.MetricNotFoundError); ok {
-				http.Error(w, mnfe.Error(), http.StatusNotFound)
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
 			_, err = io.WriteString(w, fmt.Sprintf("%v", metric.Value))

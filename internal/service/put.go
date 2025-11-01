@@ -1,12 +1,17 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 
 	"zerogravity-82/metrics/internal/model"
 )
+
+var ErrMetricNotFound = errors.New("metric not found")
+var ErrInvalidMetricValue = errors.New("invalid metric value")
+var ErrUnsupportedMetricType = errors.New("unsupported metric type")
 
 type MemStorage struct {
 	counters map[string]model.CounterMetric
@@ -22,18 +27,14 @@ func NewMemStorage() MemStorage {
 
 func (ms MemStorage) UpdateMetric(mType, mName, mValue string) error {
 	if len(mName) == 0 {
-		return MetricNotFoundError{
-			Message: "metric with empty name",
-		}
+		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
 	}
 
 	switch mType {
 	case model.Counter:
 		v, err := strconv.ParseInt(mValue, 10, 64)
 		if err != nil {
-			return InvalidMetricValueError{
-				Message: "counter delta value is invalid",
-			}
+			return fmt.Errorf("%w: %s", ErrInvalidMetricValue, mValue)
 		}
 		m := model.CounterMetric{
 			Metric: model.Metric{
@@ -54,9 +55,7 @@ func (ms MemStorage) UpdateMetric(mType, mName, mValue string) error {
 	case model.Gauge:
 		v, err := strconv.ParseFloat(mValue, 64)
 		if err != nil {
-			return InvalidMetricValueError{
-				Message: "gauge value is invalid",
-			}
+			return fmt.Errorf("%w: %s", ErrInvalidMetricValue, mValue)
 		}
 		metric := model.GaugeMetric{
 			Metric: model.Metric{
@@ -69,18 +68,13 @@ func (ms MemStorage) UpdateMetric(mType, mName, mValue string) error {
 		ms.gauges[metric.ID] = metric
 		return nil
 	default:
-		return UnsupportedMetricTypeError{
-			Message: "unsupported metric type",
-		}
+		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, mType)
 	}
-
 }
 
 func (ms MemStorage) GetCounterMetric(ID string) (model.CounterMetric, error) {
 	if v, ok := ms.counters[ID]; !ok {
-		return model.CounterMetric{}, MetricNotFoundError{
-			Message: fmt.Sprintf("counter metric with ID: %s not found", ID),
-		}
+		return model.CounterMetric{}, fmt.Errorf("%w: counter with ID %s", ErrMetricNotFound, ID)
 	} else {
 		return v, nil
 	}
@@ -88,9 +82,7 @@ func (ms MemStorage) GetCounterMetric(ID string) (model.CounterMetric, error) {
 
 func (ms MemStorage) GetGaugeMetric(ID string) (model.GaugeMetric, error) {
 	if v, ok := ms.gauges[ID]; !ok {
-		return model.GaugeMetric{}, MetricNotFoundError{
-			Message: fmt.Sprintf("gauge metric with ID: %s not found", ID),
-		}
+		return model.GaugeMetric{}, fmt.Errorf("%w: gauge with ID %s", ErrMetricNotFound, ID)
 	} else {
 		return v, nil
 	}
