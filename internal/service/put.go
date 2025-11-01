@@ -109,7 +109,7 @@ func (ms MemStorage) GetAll() ([]model.CounterMetric, []model.GaugeMetric) {
 
 func getCounters(ms MemStorage) []model.CounterMetric {
 	counterNames := make([]string, 0, len(ms.counters))
-	for n, _ := range ms.counters {
+	for n := range ms.counters {
 		counterNames = append(counterNames, n)
 	}
 	slices.Sort(counterNames)
@@ -122,7 +122,7 @@ func getCounters(ms MemStorage) []model.CounterMetric {
 
 func getGauges(ms MemStorage) []model.GaugeMetric {
 	gaugeNames := make([]string, 0, len(ms.gauges))
-	for n, _ := range ms.gauges {
+	for n := range ms.gauges {
 		gaugeNames = append(gaugeNames, n)
 	}
 	slices.Sort(gaugeNames)
