@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 
 	"zerogravity-82/metrics/internal/model"
@@ -103,13 +104,31 @@ func (ms MemStorage) GetGaugeMetric(ID string) (model.GaugeMetric, error) {
 }
 
 func (ms MemStorage) GetAll() ([]model.CounterMetric, []model.GaugeMetric) {
+	return getCounters(ms), getGauges(ms)
+}
+
+func getCounters(ms MemStorage) []model.CounterMetric {
+	counterNames := make([]string, 0, len(ms.counters))
+	for n, _ := range ms.counters {
+		counterNames = append(counterNames, n)
+	}
+	slices.Sort(counterNames)
 	counters := make([]model.CounterMetric, 0, len(ms.counters))
+	for _, n := range counterNames {
+		counters = append(counters, ms.counters[n])
+	}
+	return counters
+}
+
+func getGauges(ms MemStorage) []model.GaugeMetric {
+	gaugeNames := make([]string, 0, len(ms.gauges))
+	for n, _ := range ms.gauges {
+		gaugeNames = append(gaugeNames, n)
+	}
+	slices.Sort(gaugeNames)
 	gauges := make([]model.GaugeMetric, 0, len(ms.gauges))
-	for _, v := range ms.counters {
-		counters = append(counters, v)
+	for _, n := range gaugeNames {
+		gauges = append(gauges, ms.gauges[n])
 	}
-	for _, v := range ms.gauges {
-		gauges = append(gauges, v)
-	}
-	return counters, gauges
+	return gauges
 }
