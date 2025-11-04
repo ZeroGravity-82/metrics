@@ -20,7 +20,7 @@ type metrics struct {
 	randomValue uint32
 }
 
-func Run(cfg config.Config) {
+func Run(cfg config.AgentConfig) {
 	m := metrics{}
 	m.memStat = make(map[string]any)
 
@@ -29,11 +29,11 @@ func Run(cfg config.Config) {
 	for {
 		pollMetrics(&m)
 		m.pollCount++
-		time.Sleep(time.Duration(*cfg.PollInterval) * time.Second)
+		time.Sleep(time.Duration(cfg.PollInterval) * time.Second)
 
-		if time.Since(lastSentTime) >= time.Duration(*cfg.ReportInterval)*time.Second {
+		if time.Since(lastSentTime) >= time.Duration(cfg.ReportInterval)*time.Second {
 			lastSentTime = time.Now()
-			sendReport(*cfg.ServerAddr, &m, httpClient)
+			sendReport(cfg.ServerAddr, &m, httpClient)
 			m.pollCount = 0
 		}
 	}

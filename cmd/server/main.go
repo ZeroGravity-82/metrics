@@ -11,11 +11,13 @@ import (
 )
 
 func main() {
-	cfg := config.ParseFlags()
+	cfg, err := config.GetServerConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
 	ms := service.NewMemStorage()
-	serverAddr := *cfg.ServerAddr
-	log.Printf("server started on %s...", serverAddr)
-	err := http.ListenAndServe(serverAddr, handler.MetricRouter(ms))
+	log.Printf("server started on %s...", cfg.ServerAddr)
+	err = http.ListenAndServe(cfg.ServerAddr, handler.MetricRouter(ms))
 	if !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
