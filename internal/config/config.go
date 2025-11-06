@@ -9,7 +9,11 @@ import (
 	"strings"
 )
 
-var defaultServerAddr = "localhost:8080"
+const (
+	defaultServerAddr     = "localhost:8080"
+	defaultReportInterval = 10
+	defaultPollInterval   = 2
+)
 
 type AgentConfig struct {
 	ServerAddr     string
@@ -21,25 +25,32 @@ type ServerConfig struct {
 }
 
 func GetServerConfig() (ServerConfig, error) {
-	cfg := ServerConfig{}
-	var serverAddr string
-
-	var serverAddrFlag = &defaultServerAddr
-	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(serverAddrFlag))
+	var serverAddrFlag string
+	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
 	flag.Parse()
 
-	serverAddrEnv, ok := os.LookupEnv("ADDRESS")
-	if ok {
-		if err := validateServerAddr(serverAddrEnv); err != nil {
-			return cfg, err
-		}
-		serverAddr = serverAddrEnv
-	} else {
-		serverAddr = *serverAddrFlag
+	cfg := ServerConfig{}
+	serverAddr, err := getServerAddr(serverAddrFlag)
+	if err != nil {
+		return cfg, err
 	}
 
 	cfg.ServerAddr = serverAddr
 	return cfg, nil
+}
+
+func getServerAddr(serverAddrFlag string) (string, error) {
+	serverAddrEnv, ok := os.LookupEnv("ADDRESS")
+	if ok {
+		if err := validateServerAddr(serverAddrEnv); err != nil {
+			return "", err
+		}
+		return serverAddrEnv, nil
+	} else if serverAddrFlag != "" {
+		return serverAddrFlag, nil
+	} else {
+		return defaultServerAddr, nil
+	}
 }
 
 func serverAddrUsage() string {
@@ -65,50 +76,54 @@ func validateServerAddr(v string) error {
 }
 
 func GetAgentConfig() (AgentConfig, error) {
-	cfg := AgentConfig{}
-	var serverAddr string
-	var reportInterval, pollInterval int
-
-	var serverAddrFlag = &defaultServerAddr
-	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(serverAddrFlag))
-	reportIntervalFlag := flag.Int("r", 10, "частота отправки метрик на сервер")
-	pollIntervalFlag := flag.Int("p", 2, "частота опроса метрик из пакета runtime")
+	var serverAddrFlag string
+	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	reportIntervalFlag := flag.Int("r", defaultReportInterval, "частота отправки метрик на сервер")
+	pollIntervalFlag := flag.Int("p", defaultPollInterval, "частота опроса метрик из пакета runtime")
 	flag.Parse()
 
-	serverAddrEnv, ok := os.LookupEnv("ADDRESS")
-	if ok {
-		if err := validateServerAddr(serverAddrEnv); err != nil {
-			return cfg, err
-		}
-		serverAddr = serverAddrEnv
-	} else {
-		serverAddr = *serverAddrFlag
+	cfg := AgentConfig{}
+	serverAddr, err := getServerAddr(serverAddrFlag)
+	if err != nil {
+		return cfg, err
 	}
-
-	reportIntervalEnvStr, ok := os.LookupEnv("REPORT_INTERVAL")
-	if ok {
-		reportIntervalEnv, err := strconv.Atoi(reportIntervalEnvStr)
-		if err != nil {
-			return cfg, err
-		}
-		reportInterval = reportIntervalEnv
-	} else {
-		reportInterval = *reportIntervalFlag
+	reportInterval, err := getReportInterval(reportIntervalFlag)
+	if err != nil {
+		return cfg, err
 	}
-
-	pollIntervalEnvStr, ok := os.LookupEnv("POLL_INTERVAL")
-	if ok {
-		pollIntervalEnv, err := strconv.Atoi(pollIntervalEnvStr)
-		if err != nil {
-			return cfg, err
-		}
-		pollInterval = pollIntervalEnv
-	} else {
-		pollInterval = *pollIntervalFlag
+	pollInterval, err := getPollInterval(pollIntervalFlag)
+	if err != nil {
+		return cfg, err
 	}
 
 	cfg.ServerAddr = serverAddr
 	cfg.ReportInterval = reportInterval
 	cfg.PollInterval = pollInterval
 	return cfg, nil
+}
+
+func getReportInterval(reportIntervalFlag *int) (int, error) {
+	reportIntervalEnvStr, ok := os.LookupEnv("REPORT_INTERVAL")
+	if ok {
+		reportIntervalEnv, err := strconv.Atoi(reportIntervalEnvStr)
+		if err != nil {
+			return 0, err
+		}
+		return reportIntervalEnv, nil
+	} else {
+		return *reportIntervalFlag, nil
+	}
+}
+
+func getPollInterval(pollIntervalFlag *int) (int, error) {
+	pollIntervalEnvStr, ok := os.LookupEnv("POLL_INTERVAL")
+	if ok {
+		pollIntervalEnv, err := strconv.Atoi(pollIntervalEnvStr)
+		if err != nil {
+			return 0, err
+		}
+		return pollIntervalEnv, nil
+	} else {
+		return *pollIntervalFlag, nil
+	}
 }
