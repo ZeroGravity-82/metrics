@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/zerolog/log"
 
 	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/service"
@@ -50,7 +50,7 @@ func updateMetricHandler(s Storage) http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			log.Printf("update metric error: %v", err)
+			logError(err, "Update metric error")
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 	}
@@ -69,7 +69,7 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 				return
 			}
 			_, err = io.WriteString(w, fmt.Sprintf("%v", metric.Delta))
-			log.Printf("error during writing response: %v", err)
+			logWriteResponseError(err)
 		case model.Gauge:
 			metric, err := s.GetGaugeMetric(mName)
 			if errors.Is(err, service.ErrMetricNotFound) {
@@ -77,7 +77,7 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 				return
 			}
 			_, err = io.WriteString(w, fmt.Sprintf("%v", metric.Value))
-			log.Printf("error during writing response: %v", err)
+			logWriteResponseError(err)
 		default:
 			http.Error(w, "unsupported metric type", http.StatusBadRequest)
 			return
@@ -125,7 +125,15 @@ func getMetricListHandler(s Storage) http.HandlerFunc {
 </html>
 `))
 		if err := t.Execute(w, data); err != nil {
-			log.Printf("error during writing response: %v", err)
+			logWriteResponseError(err)
 		}
 	}
+}
+
+func logWriteResponseError(err error) {
+	logError(err, "Error during writing response")
+}
+
+func logError(err error, msg string) {
+	log.Error().Str("error", err.Error()).Msg(msg)
 }

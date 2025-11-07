@@ -2,13 +2,13 @@ package agent
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/rs/zerolog/log"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
@@ -77,18 +77,18 @@ func sendReport(serverAddr string, m *metrics, httpClient *resty.Client) {
 	for name, value := range m.memStat {
 		err := sendMetric(serverAddr, model.Gauge, name, value, httpClient)
 		if err != nil {
-			logError(model.Gauge, name, value, err)
+			logSendReportError(model.Gauge, name, value, err)
 		}
 	}
 
 	err := sendMetric(serverAddr, model.Counter, "PollCount", m.pollCount, httpClient)
 	if err != nil {
-		logError(model.Gauge, "PollCount", m.pollCount, err)
+		logSendReportError(model.Gauge, "PollCount", m.pollCount, err)
 	}
 
 	err = sendMetric(serverAddr, model.Gauge, "RandomValue", m.randomValue, httpClient)
 	if err != nil {
-		logError(model.Gauge, "RandomValue", m.randomValue, err)
+		logSendReportError(model.Gauge, "RandomValue", m.randomValue, err)
 	}
 }
 
@@ -121,6 +121,11 @@ func addDefaultURLSchema(URL string) (string, error) {
 	return urlPrefix + host + ":" + port, nil
 }
 
-func logError(mType, mName string, mValue any, err error) {
-	log.Printf("error on sending metric '%s' of type '%s' with value '%d': %v", mName, mType, mValue, err)
+func logSendReportError(mType, mName string, mValue any, err error) {
+	log.Error().
+		Str("name", mName).
+		Str("type", mType).
+		Str("value", fmt.Sprintf("%v", mValue)).
+		Str("error", err.Error()).
+		Msg("Error on sending metric")
 }

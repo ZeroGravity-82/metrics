@@ -2,8 +2,9 @@ package main
 
 import (
 	"errors"
-	"log"
 	"net/http"
+
+	"github.com/rs/zerolog/log"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/handler"
@@ -13,12 +14,12 @@ import (
 func main() {
 	cfg, err := config.GetServerConfig()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Str("error", err.Error()).Msg("Config error")
 	}
 	ms := service.NewMemStorage()
-	log.Printf("server started on %s...", cfg.ServerAddr)
+	log.Info().Str("address", cfg.ServerAddr).Msg("Server started")
 	err = http.ListenAndServe(cfg.ServerAddr, handler.MetricRouter(ms))
 	if !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		log.Fatal().Msg(err.Error())
 	}
 }
