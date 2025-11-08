@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -100,7 +99,7 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if _, err = io.WriteString(w, fmt.Sprintf("%v", metric.Delta)); err != nil {
+			if _, err := fmt.Fprintf(w, "%v", metric.Delta); err != nil {
 				logWriteResponseError(err)
 			}
 		case model.Gauge:
@@ -109,7 +108,7 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if _, err = io.WriteString(w, fmt.Sprintf("%v", metric.Value)); err != nil {
+			if _, err = fmt.Fprintf(w, "%v", metric.Value); err != nil {
 				logWriteResponseError(err)
 			}
 		default:
