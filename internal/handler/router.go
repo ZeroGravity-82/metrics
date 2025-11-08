@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -24,11 +26,41 @@ type Storage interface {
 
 func MetricRouter(s Storage) chi.Router {
 	r := chi.NewRouter()
-	r.Use(middleware.AllowContentType("text/plain"))
+	r.Use(
+		middleware.AllowContentType("text/plain"),
+		withLogging,
+	)
 	r.Post("/update/{mType}/{mName}/{mValue}", updateMetricHandler(s))
 	r.Get("/value/{mType}/{mName}", getMetricHandler(s))
 	r.Get("/", getMetricListHandler(s))
 	return r
+}
+
+func withLogging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		URI := r.RequestURI
+		method := r.Method
+		start := time.Now()
+
+		responseData := &responseData{
+			status: 0,
+			size:   0,
+		}
+		lw := loggingResponseWriter{
+			ResponseWriter: w,
+			responseData:   responseData,
+		}
+		next.ServeHTTP(&lw, r)
+
+		duration := time.Since(start)
+		log.Info().
+			Str("uri", URI).
+			Str("method", method).
+			Str("duration", duration.String()).
+			Str("status", strconv.Itoa(responseData.status)).
+			Str("size", strconv.Itoa(responseData.size)).
+			Msg("Request processed")
+	})
 }
 
 func updateMetricHandler(s Storage) http.HandlerFunc {
