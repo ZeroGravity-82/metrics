@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -18,9 +19,8 @@ import (
 
 type Storage interface {
 	UpdateMetric(mType, mName, mValue string) error
-	GetCounterMetric(ID string) (model.CounterMetric, error)
-	GetGaugeMetric(ID string) (model.GaugeMetric, error)
-	GetAll() ([]model.CounterMetric, []model.GaugeMetric)
+	GetMetric(mType, mName string) (model.Metrics, error)
+	GetAll() map[string]model.Metrics
 }
 
 func MetricRouter(s Storage) chi.Router {
@@ -94,25 +94,25 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 
 		switch mType {
 		case model.Counter:
-			metric, err := s.GetCounterMetric(mName)
+			metric, err := s.GetMetric(mType, mName)
 			if errors.Is(err, service.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if _, err := fmt.Fprintf(w, "%v", metric.Delta); err != nil {
+			if _, err := fmt.Fprintf(w, "%v", *metric.Delta); err != nil {
 				logWriteResponseError(err)
 			}
 		case model.Gauge:
-			metric, err := s.GetGaugeMetric(mName)
+			metric, err := s.GetMetric(mType, mName)
 			if errors.Is(err, service.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if _, err = fmt.Fprintf(w, "%v", metric.Value); err != nil {
+			if _, err = fmt.Fprintf(w, "%v", *metric.Value); err != nil {
 				logWriteResponseError(err)
 			}
 		default:
-			http.Error(w, "unsupported metric type", http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("unsupported metric type: %s", mType), http.StatusBadRequest)
 			return
 		}
 	}
@@ -121,10 +121,25 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 func getMetricListHandler(s Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var data struct {
-			Counters []model.CounterMetric
-			Gauges   []model.GaugeMetric
+			Counters []model.Metrics
+			Gauges   []model.Metrics
 		}
-		data.Counters, data.Gauges = s.GetAll()
+		metrics := s.GetAll()
+		metricNames := make([]string, 0, len(metrics))
+		for n := range metrics {
+			metricNames = append(metricNames, n)
+		}
+		slices.Sort(metricNames)
+
+		for _, n := range metricNames {
+			m := metrics[n]
+			if m.MType == model.Counter {
+				data.Counters = append(data.Counters, m)
+			}
+			if m.MType == model.Gauge {
+				data.Gauges = append(data.Gauges, m)
+			}
+		}
 		t := template.Must(template.New("metricList").Parse(`
 <!DOCTYPE html>
 <html lang="ru">
