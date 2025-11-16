@@ -111,6 +111,9 @@ func addDefaultURLSchema(URL string) (string, error) {
 	}
 	hp := strings.Split(URL, ":")
 	host := hp[0]
+	if len(host) == 0 {
+		host = "localhost"
+	}
 	port := hp[1]
 	urlPrefix := ""
 	if host == "localhost" {
