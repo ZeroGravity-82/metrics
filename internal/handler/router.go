@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -18,7 +19,7 @@ import (
 )
 
 type Storage interface {
-	UpdateMetric(mType, mName, mValue string) error
+	UpdateMetric(model.Metrics) error
 	GetMetric(mType, mName string) (model.Metrics, error)
 	GetAll() map[string]model.Metrics
 }
@@ -26,12 +27,16 @@ type Storage interface {
 func MetricRouter(s Storage) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
-		middleware.AllowContentType("text/plain"),
 		withLogging,
 	)
-	r.Post("/update/{mType}/{mName}/{mValue}", updateMetricHandler(s))
-	r.Get("/value/{mType}/{mName}", getMetricHandler(s))
-	r.Get("/", getMetricListHandler(s))
+	textPlainContentType := middleware.AllowContentType("text/plain")
+	r.With(textPlainContentType).Post("/update/{mType}/{mName}/{mValue}", updateMetricHandler(s))
+	r.With(textPlainContentType).Get("/value/{mType}/{mName}", getMetricHandler(s))
+	r.With(textPlainContentType).Get("/", getMetricListHandler(s))
+
+	applicationJsonContentType := middleware.AllowContentType("application/json")
+	r.With(applicationJsonContentType).Post("/update", updateHandler(s))
+	r.With(applicationJsonContentType).Post("/value", getHandler(s))
 	return r
 }
 
@@ -67,17 +72,71 @@ func updateMetricHandler(s Storage) http.HandlerFunc {
 		mType := chi.URLParam(r, "mType")
 		mName := chi.URLParam(r, "mName")
 		mValue := chi.URLParam(r, "mValue")
-		err := s.UpdateMetric(mType, mName, mValue)
+
+		m, err := buildMetric(mType, mName, mValue)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err = s.UpdateMetric(m)
 		if err != nil {
 			if errors.Is(err, service.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if errors.Is(err, service.ErrUnsupportedMetricType) {
+			if errors.Is(err, service.ErrInvalidMetricType) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if errors.Is(err, service.ErrInvalidMetricValue) {
+			logError(err, "Update metric error")
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		}
+	}
+}
+
+func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
+	m := model.Metrics{}
+	switch mType {
+	case model.Counter:
+		v, err := strconv.ParseInt(mValue, 10, 64)
+		if err != nil {
+			return model.Metrics{}, fmt.Errorf("%w: %s", service.ErrInvalidMetricValue, mValue)
+		}
+		m.ID = mName
+		m.MType = mType
+		m.Delta = &v
+	case model.Gauge:
+		v, err := strconv.ParseFloat(mValue, 64)
+		if err != nil {
+			return model.Metrics{}, fmt.Errorf("%w: %s", service.ErrInvalidMetricValue, mValue)
+		}
+		m.ID = mName
+		m.MType = mType
+		m.Value = &v
+	default:
+		return model.Metrics{}, fmt.Errorf("%w: %s", service.ErrUnsupportedMetricType, mType)
+	}
+	return m, nil
+}
+
+func updateHandler(s Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var metric model.Metrics
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&metric); err != nil {
+			http.Error(w, fmt.Sprintf("cannot decode request JSON body: %s", err.Error()), http.StatusBadRequest)
+			return
+		}
+		err := s.UpdateMetric(metric)
+		if err != nil {
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, service.ErrUnsupportedMetricType) ||
+				errors.Is(err, service.ErrInvalidMetricType) ||
+				errors.Is(err, service.ErrInvalidMetricValue) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -114,6 +173,32 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 		default:
 			http.Error(w, fmt.Sprintf("unsupported metric type: %s", mType), http.StatusBadRequest)
 			return
+		}
+	}
+}
+
+func getHandler(s Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var metric model.Metrics
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&metric); err != nil {
+			http.Error(w, fmt.Sprintf("cannot decode request JSON body: %s", err.Error()), http.StatusBadRequest)
+			return
+		}
+		if metric.MType != model.Counter && metric.MType != model.Gauge {
+			http.Error(w, fmt.Sprintf("unsupported metric type: %s", metric.MType), http.StatusBadRequest)
+			return
+		}
+
+		metric, err := s.GetMetric(metric.MType, metric.ID)
+		if errors.Is(err, service.ErrMetricNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		if err := enc.Encode(metric); err != nil {
+			logWriteResponseError(err)
 		}
 	}
 }
