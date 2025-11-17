@@ -15,14 +15,14 @@ import (
 )
 
 type metrics struct {
-	memStat     map[string]any
-	pollCount   uint64
-	randomValue uint32
+	memStat     map[string]float64
+	pollCount   int64
+	randomValue float64
 }
 
 func Run(cfg config.AgentConfig) {
 	m := metrics{}
-	m.memStat = make(map[string]any)
+	m.memStat = make(map[string]float64)
 
 	httpClient := resty.New()
 	lastSentTime := time.Now()
@@ -43,62 +43,68 @@ func pollMetrics(m *metrics) {
 	memStats := runtime.MemStats{}
 	runtime.ReadMemStats(&memStats)
 
-	m.memStat["Alloc"] = memStats.Alloc
-	m.memStat["BuckHashSys"] = memStats.BuckHashSys
-	m.memStat["Frees"] = memStats.Frees
+	m.memStat["Alloc"] = float64(memStats.Alloc)
+	m.memStat["BuckHashSys"] = float64(memStats.BuckHashSys)
+	m.memStat["Frees"] = float64(memStats.Frees)
 	m.memStat["GCCPUFraction"] = memStats.GCCPUFraction
-	m.memStat["GCSys"] = memStats.GCSys
-	m.memStat["HeapAlloc"] = memStats.HeapAlloc
-	m.memStat["HeapIdle"] = memStats.HeapIdle
-	m.memStat["HeapInuse"] = memStats.HeapInuse
-	m.memStat["HeapObjects"] = memStats.HeapObjects
-	m.memStat["HeapReleased"] = memStats.HeapReleased
-	m.memStat["HeapSys"] = memStats.HeapSys
-	m.memStat["LastGC"] = memStats.LastGC
-	m.memStat["Lookups"] = memStats.Lookups
-	m.memStat["MCacheInuse"] = memStats.MCacheInuse
-	m.memStat["MCacheSys"] = memStats.MCacheSys
-	m.memStat["MSpanInuse"] = memStats.MSpanInuse
-	m.memStat["MSpanSys"] = memStats.MSpanSys
-	m.memStat["Mallocs"] = memStats.Mallocs
-	m.memStat["NextGC"] = memStats.NextGC
-	m.memStat["NumForcedGC"] = memStats.NumForcedGC
-	m.memStat["NumGC"] = memStats.NumGC
-	m.memStat["OtherSys"] = memStats.OtherSys
-	m.memStat["PauseTotalNs"] = memStats.PauseTotalNs
-	m.memStat["StackInuse"] = memStats.StackInuse
-	m.memStat["StackSys"] = memStats.StackSys
-	m.memStat["Sys"] = memStats.Sys
-	m.memStat["TotalAlloc"] = memStats.TotalAlloc
-	m.randomValue = rand.Uint32()
+	m.memStat["GCSys"] = float64(memStats.GCSys)
+	m.memStat["HeapAlloc"] = float64(memStats.HeapAlloc)
+	m.memStat["HeapIdle"] = float64(memStats.HeapIdle)
+	m.memStat["HeapInuse"] = float64(memStats.HeapInuse)
+	m.memStat["HeapObjects"] = float64(memStats.HeapObjects)
+	m.memStat["HeapReleased"] = float64(memStats.HeapReleased)
+	m.memStat["HeapSys"] = float64(memStats.HeapSys)
+	m.memStat["LastGC"] = float64(memStats.LastGC)
+	m.memStat["Lookups"] = float64(memStats.Lookups)
+	m.memStat["MCacheInuse"] = float64(memStats.MCacheInuse)
+	m.memStat["MCacheSys"] = float64(memStats.MCacheSys)
+	m.memStat["MSpanInuse"] = float64(memStats.MSpanInuse)
+	m.memStat["MSpanSys"] = float64(memStats.MSpanSys)
+	m.memStat["Mallocs"] = float64(memStats.Mallocs)
+	m.memStat["NextGC"] = float64(memStats.NextGC)
+	m.memStat["NumForcedGC"] = float64(memStats.NumForcedGC)
+	m.memStat["NumGC"] = float64(memStats.NumGC)
+	m.memStat["OtherSys"] = float64(memStats.OtherSys)
+	m.memStat["PauseTotalNs"] = float64(memStats.PauseTotalNs)
+	m.memStat["StackInuse"] = float64(memStats.StackInuse)
+	m.memStat["StackSys"] = float64(memStats.StackSys)
+	m.memStat["Sys"] = float64(memStats.Sys)
+	m.memStat["TotalAlloc"] = float64(memStats.TotalAlloc)
+	m.randomValue = float64(rand.Uint32())
 }
 
-func sendReport(serverAddr string, m *metrics, httpClient *resty.Client) {
-	for name, value := range m.memStat {
-		err := sendMetric(serverAddr, model.Gauge, name, value, httpClient)
+func sendReport(serverAddr string, metrics *metrics, httpClient *resty.Client) {
+	for name, value := range metrics.memStat {
+		m := model.Metrics{ID: name, MType: model.Gauge, Value: &value}
+		err := sendMetric(serverAddr, m, httpClient)
 		if err != nil {
-			logSendReportError(model.Gauge, name, value, err)
+			logSendReportError(err, m)
 		}
 	}
 
-	err := sendMetric(serverAddr, model.Counter, "PollCount", m.pollCount, httpClient)
+	m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &metrics.pollCount}
+	err := sendMetric(serverAddr, m, httpClient)
 	if err != nil {
-		logSendReportError(model.Gauge, "PollCount", m.pollCount, err)
+		logSendReportError(err, m)
 	}
 
-	err = sendMetric(serverAddr, model.Gauge, "RandomValue", m.randomValue, httpClient)
+	m = model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &metrics.randomValue}
+	err = sendMetric(serverAddr, m, httpClient)
 	if err != nil {
-		logSendReportError(model.Gauge, "RandomValue", m.randomValue, err)
+		logSendReportError(err, m)
 	}
 }
 
-func sendMetric(serverAddr, mType, mName string, mValue any, httpClient *resty.Client) error {
+func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) error {
 	serverAddr, err := addDefaultURLSchema(serverAddr)
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("%s/update/%s/%s/%v", serverAddr, mType, mName, mValue)
-	_, err = httpClient.R().SetHeader("Content-Type", "text/plain").Post(url)
+	url := fmt.Sprintf("%s/update", serverAddr)
+	_, err = httpClient.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(m).
+		Post(url)
 	if err != nil {
 		return err
 	}
@@ -124,11 +130,9 @@ func addDefaultURLSchema(URL string) (string, error) {
 	return urlPrefix + host + ":" + port, nil
 }
 
-func logSendReportError(mType, mName string, mValue any, err error) {
+func logSendReportError(err error, m model.Metrics) {
 	log.Error().
-		Str("name", mName).
-		Str("type", mType).
-		Str("value", fmt.Sprintf("%v", mValue)).
+		Str("metric", fmt.Sprintf("%v", m)).
 		Str("error", err.Error()).
 		Msg("Error on sending metric")
 }

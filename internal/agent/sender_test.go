@@ -1,10 +1,9 @@
 package agent
 
 import (
-	"fmt"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/go-resty/resty/v2"
@@ -17,84 +16,77 @@ import (
 func TestPollMetrics(t *testing.T) {
 	// Arrange
 	m := metrics{}
-	m.memStat = make(map[string]any)
+	m.memStat = make(map[string]float64)
 
 	// Act
 	pollMetrics(&m)
 
 	// Assert
-	assert.IsType(t, uint64(0), m.memStat["Alloc"])
-	assert.IsType(t, uint64(0), m.memStat["BuckHashSys"])
-	assert.IsType(t, uint64(0), m.memStat["Frees"])
-	assert.IsType(t, float64(0), m.memStat["GCCPUFraction"])
-	assert.IsType(t, uint64(0), m.memStat["GCSys"])
-	assert.IsType(t, uint64(0), m.memStat["HeapAlloc"])
-	assert.IsType(t, uint64(0), m.memStat["HeapIdle"])
-	assert.IsType(t, uint64(0), m.memStat["HeapInuse"])
-	assert.IsType(t, uint64(0), m.memStat["HeapObjects"])
-	assert.IsType(t, uint64(0), m.memStat["HeapReleased"])
-	assert.IsType(t, uint64(0), m.memStat["HeapSys"])
-	assert.IsType(t, uint64(0), m.memStat["LastGC"])
-	assert.IsType(t, uint64(0), m.memStat["Lookups"])
-	assert.IsType(t, uint64(0), m.memStat["MCacheInuse"])
-	assert.IsType(t, uint64(0), m.memStat["MCacheSys"])
-	assert.IsType(t, uint64(0), m.memStat["MSpanInuse"])
-	assert.IsType(t, uint64(0), m.memStat["MSpanSys"])
-	assert.IsType(t, uint64(0), m.memStat["Mallocs"])
-	assert.IsType(t, uint64(0), m.memStat["NextGC"])
-	assert.IsType(t, uint32(0), m.memStat["NumForcedGC"])
-	assert.IsType(t, uint32(0), m.memStat["NumGC"])
-	assert.IsType(t, uint64(0), m.memStat["OtherSys"])
-	assert.IsType(t, uint64(0), m.memStat["PauseTotalNs"])
-	assert.IsType(t, uint64(0), m.memStat["StackInuse"])
-	assert.IsType(t, uint64(0), m.memStat["StackSys"])
-	assert.IsType(t, uint64(0), m.memStat["Sys"])
-	assert.IsType(t, uint64(0), m.memStat["TotalAlloc"])
-	assert.IsType(t, uint32(0), m.randomValue)
+	assert.Contains(t, m.memStat, "Alloc")
+	assert.Contains(t, m.memStat, "BuckHashSys")
+	assert.Contains(t, m.memStat, "Frees")
+	assert.Contains(t, m.memStat, "GCCPUFraction")
+	assert.Contains(t, m.memStat, "GCSys")
+	assert.Contains(t, m.memStat, "HeapAlloc")
+	assert.Contains(t, m.memStat, "HeapIdle")
+	assert.Contains(t, m.memStat, "HeapInuse")
+	assert.Contains(t, m.memStat, "HeapObjects")
+	assert.Contains(t, m.memStat, "HeapReleased")
+	assert.Contains(t, m.memStat, "HeapSys")
+	assert.Contains(t, m.memStat, "LastGC")
+	assert.Contains(t, m.memStat, "Lookups")
+	assert.Contains(t, m.memStat, "MCacheInuse")
+	assert.Contains(t, m.memStat, "MCacheSys")
+	assert.Contains(t, m.memStat, "MSpanInuse")
+	assert.Contains(t, m.memStat, "MSpanSys")
+	assert.Contains(t, m.memStat, "Mallocs")
+	assert.Contains(t, m.memStat, "NextGC")
+	assert.Contains(t, m.memStat, "NumForcedGC")
+	assert.Contains(t, m.memStat, "NumGC")
+	assert.Contains(t, m.memStat, "OtherSys")
+	assert.Contains(t, m.memStat, "PauseTotalNs")
+	assert.Contains(t, m.memStat, "StackInuse")
+	assert.Contains(t, m.memStat, "StackSys")
+	assert.Contains(t, m.memStat, "Sys")
+	assert.Contains(t, m.memStat, "TotalAlloc")
 }
 
 func TestSendReport(t *testing.T) {
 	// Arrange
-	m := metrics{}
-	m.memStat = make(map[string]any)
-	pollMetrics(&m)
+	metrics := metrics{}
+	metrics.memStat = make(map[string]float64)
+	pollMetrics(&metrics)
 
-	sentMetricsCnt := 0
+	var sentMetrics []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Assert
-		pathParts := strings.Split(r.URL.Path, "/")
-		require.Len(t, pathParts, 5)
-		method := pathParts[1]
-		mType := pathParts[2]
-		mName := pathParts[3]
-		mValue := pathParts[4]
+		assert.Equal(t, "/update", r.URL.Path)
 
-		assert.Equal(t, "update", method)
-		switch mName {
+		var m model.Metrics
+		dec := json.NewDecoder(r.Body)
+		err := dec.Decode(&m)
+		require.NoError(t, err)
+
+		assert.NotContains(t, sentMetrics, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
+		sentMetrics = append(sentMetrics, m.ID)
+		switch m.ID {
 		case "PollCount":
-			assert.Equal(t, model.Counter, mType)
-			assert.Equal(t, toString(m.pollCount), mValue)
+			assert.Equal(t, model.Counter, m.MType)
+			assert.Equal(t, metrics.pollCount, *m.Delta)
 		case "RandomValue":
-			assert.Equal(t, model.Gauge, mType)
-			assert.Equal(t, toString(m.randomValue), mValue)
+			assert.Equal(t, model.Gauge, m.MType)
+			assert.Equal(t, metrics.randomValue, *m.Value)
 		default:
-			assert.Equal(t, model.Gauge, mType)
-			assert.Equal(t, toString(m.memStat[mName]), mValue)
-			assert.NotNil(t, m.memStat[mName])
-			m.memStat[mName] = nil // Гарантирует, что каждая метрика отправлена не более одного раза
+			assert.Equal(t, model.Gauge, m.MType)
+			assert.Equal(t, metrics.memStat[m.ID], *m.Value)
 		}
-		sentMetricsCnt++
 	}))
 	defer server.Close()
 	httpClient := resty.New()
 
 	// Act
-	sendReport(server.URL, &m, httpClient)
+	sendReport(server.URL, &metrics, httpClient)
 
 	// Assert
-	assert.Equal(t, len(m.memStat)+2, sentMetricsCnt)
-}
-
-func toString(v any) string {
-	return fmt.Sprintf("%v", v)
+	assert.Equal(t, len(metrics.memStat)+2, len(sentMetrics))
 }
