@@ -90,3 +90,37 @@ func TestSendReport(t *testing.T) {
 	// Assert
 	assert.Equal(t, len(metrics.memStat)+2, len(sentMetrics))
 }
+
+func TestAddDefaultSchema(t *testing.T) {
+	// Arrange
+	testTable := []struct {
+		name          string
+		inputURL      string
+		wantResultURL string
+	}{
+		{
+			name:          "localhost",
+			inputURL:      "localhost:8081",
+			wantResultURL: "http://localhost:8081",
+		},
+		{
+			name:          "port only",
+			inputURL:      ":8081",
+			wantResultURL: "http://localhost:8081",
+		},
+		{
+			name:          "regular IP address",
+			inputURL:      "192.168.1.101:8081",
+			wantResultURL: "https://192.168.1.101:8081",
+		},
+	}
+	for _, tt := range testTable {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			resultURL := addDefaultURLSchema(tt.inputURL)
+
+			// Assert
+			assert.Equal(t, tt.wantResultURL, resultURL)
+		})
+	}
+}
