@@ -96,12 +96,9 @@ func sendReport(serverAddr string, metrics *metrics, httpClient *resty.Client) {
 }
 
 func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) error {
-	serverAddr, err := addDefaultURLSchema(serverAddr)
-	if err != nil {
-		return err
-	}
+	serverAddr = addDefaultURLSchema(serverAddr)
 	url := fmt.Sprintf("%s/update", serverAddr)
-	_, err = httpClient.R().
+	_, err := httpClient.R().
 		SetHeader("Content-Type", "application/json").
 		SetBody(m).
 		Post(url)
@@ -111,9 +108,9 @@ func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) er
 	return nil
 }
 
-func addDefaultURLSchema(URL string) (string, error) {
+func addDefaultURLSchema(URL string) string {
 	if strings.HasPrefix(URL, "https://") || strings.HasPrefix(URL, "http://") {
-		return URL, nil
+		return URL
 	}
 	hp := strings.Split(URL, ":")
 	host := hp[0]
@@ -127,7 +124,7 @@ func addDefaultURLSchema(URL string) (string, error) {
 	} else {
 		urlPrefix = "https://"
 	}
-	return urlPrefix + host + ":" + port, nil
+	return urlPrefix + host + ":" + port
 }
 
 func logSendReportError(err error, m model.Metrics) {
