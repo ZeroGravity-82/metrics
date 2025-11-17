@@ -27,6 +27,7 @@ type Storage interface {
 func MetricRouter(s Storage) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
+		middleware.StripSlashes,
 		withLogging,
 	)
 	textPlainContentType := middleware.AllowContentType("text/plain")
