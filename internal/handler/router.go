@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -29,6 +31,7 @@ func MetricRouter(s Storage) chi.Router {
 	r.Use(
 		middleware.StripSlashes,
 		withLogging,
+		withGzip,
 	)
 	textPlainContentType := middleware.AllowContentType("text/plain")
 	r.With(textPlainContentType).Post("/update/{mType}/{mName}/{mValue}", updateMetricHandler(s))
@@ -65,6 +68,39 @@ func withLogging(next http.Handler) http.Handler {
 			Str("status", strconv.Itoa(responseData.status)).
 			Str("size", strconv.Itoa(responseData.size)).
 			Msg("Request processed")
+	})
+}
+
+func withGzip(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ow := w
+		acceptEncoding := r.Header.Get("Accept-Encoding")
+		supportGzip := strings.Contains(acceptEncoding, "gzip")
+		if supportGzip {
+			cw := newCompressWriter(w)
+			defer cw.Close()
+			cw.Header().Set("Content-Encoding", "gzip")
+			ow = cw
+		}
+
+		contentEncoding := r.Header.Get("Content-Encoding")
+		sendsGzip := strings.Contains(contentEncoding, "gzip")
+		if sendsGzip {
+			cr, err := newCompressReader(r.Body)
+			if err != nil {
+				if errors.Is(err, gzip.ErrChecksum) || errors.Is(err, gzip.ErrHeader) {
+					ow.WriteHeader(http.StatusBadRequest)
+				} else {
+					ow.WriteHeader(http.StatusInternalServerError)
+					logError(err, "Request error")
+				}
+				return
+			}
+			defer cr.Close()
+			r.Body = cr
+		}
+
+		next.ServeHTTP(ow, r)
 	})
 }
 
@@ -159,6 +195,7 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
+			w.Header().Set("Content-Type", "text/plain")
 			if _, err := fmt.Fprintf(w, "%v", *metric.Delta); err != nil {
 				logWriteResponseError(err)
 			}
@@ -168,6 +205,7 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
+			w.Header().Set("Content-Type", "text/plain")
 			if _, err = fmt.Fprintf(w, "%v", *metric.Value); err != nil {
 				logWriteResponseError(err)
 			}
@@ -258,6 +296,7 @@ func getMetricListHandler(s Storage) http.HandlerFunc {
 </body>
 </html>
 `))
+		w.Header().Set("Content-Type", "text/html")
 		if err := t.Execute(w, data); err != nil {
 			logWriteResponseError(err)
 		}
