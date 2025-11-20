@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"runtime"
@@ -96,16 +99,38 @@ func sendReport(serverAddr string, metrics *metrics, httpClient *resty.Client) {
 }
 
 func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) error {
+	gzipBz, err := marshalAndCompress(m)
+	if err != nil {
+		return err
+	}
+
 	serverAddr = addDefaultURLSchema(serverAddr)
 	url := fmt.Sprintf("%s/update", serverAddr)
-	_, err := httpClient.R().
+	_, err = httpClient.R().
 		SetHeader("Content-Type", "application/json").
-		SetBody(m).
+		SetHeader("Content-Encoding", "gzip").
+		SetBody(gzipBz).
 		Post(url)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func marshalAndCompress(m model.Metrics) ([]byte, error) {
+	jsonBz, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	var gzipBuf bytes.Buffer
+	zr := gzip.NewWriter(&gzipBuf)
+	if _, err := zr.Write(jsonBz); err != nil {
+		return nil, err
+	}
+	if err := zr.Close(); err != nil {
+		return nil, err
+	}
+	return gzipBuf.Bytes(), nil
 }
 
 func addDefaultURLSchema(URL string) string {
