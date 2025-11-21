@@ -178,7 +178,7 @@ func TestUpdateHandler(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name:           "fail when unsupported content/type",
+			name:           "fail when unsupported content type",
 			method:         http.MethodPost,
 			contentType:    "text/plain",
 			body:           `{"id":"RandomValue","type":"gauge","value":12345}`,
@@ -408,7 +408,7 @@ func TestGetHandler(t *testing.T) {
 		wantContentType string
 	}{
 		{
-			name:            "fail when unsupported content/type",
+			name:            "fail when unsupported content type",
 			method:          http.MethodPost,
 			contentType:     "text/plain",
 			body:            `{"id":"RandomValue","type":"gauge"}`,
