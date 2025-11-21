@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -62,9 +63,12 @@ func TestSendReport(t *testing.T) {
 		// Assert
 		assert.Equal(t, "/update", r.URL.Path)
 
+		zr, err := gzip.NewReader(r.Body)
+		require.NoError(t, err)
+
 		var m model.Metrics
-		dec := json.NewDecoder(r.Body)
-		err := dec.Decode(&m)
+		dec := json.NewDecoder(zr)
+		err = dec.Decode(&m)
 		require.NoError(t, err)
 
 		assert.NotContains(t, sentMetrics, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
