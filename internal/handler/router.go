@@ -129,6 +129,7 @@ func updateMetricHandler(s Storage) http.HandlerFunc {
 			logError(err, "Update metric error")
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -180,6 +181,7 @@ func updateHandler(s Storage) http.HandlerFunc {
 			logError(err, "Update metric error")
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
