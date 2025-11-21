@@ -1,11 +1,12 @@
 package handler
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -296,9 +297,12 @@ func TestUpdateHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			req, err := http.NewRequest(tt.method, ts.URL+"/update", strings.NewReader(tt.body))
+			buf, err := compressWithGzip(tt.body)
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, ts.URL+"/update", buf)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
+			req.Header.Set("Content-Encoding", "gzip")
 
 			// Act
 			resp, err := ts.Client().Do(req)
@@ -311,6 +315,18 @@ func TestUpdateHandler(t *testing.T) {
 			assert.Equal(t, tt.wantStatusCode, resp.StatusCode)
 		})
 	}
+}
+
+func compressWithGzip(body string) (*bytes.Buffer, error) {
+	buf := bytes.NewBuffer(nil)
+	zb := gzip.NewWriter(buf)
+	if _, err := zb.Write([]byte(body)); err != nil {
+		return nil, err
+	}
+	if err := zb.Close(); err != nil {
+		return nil, err
+	}
+	return buf, nil
 }
 
 func TestGetMetricHandler(t *testing.T) {
@@ -348,6 +364,14 @@ func TestGetMetricHandler(t *testing.T) {
 			mType:          "gauge",
 			mName:          "UnknownGaugeMetric",
 			wantStatusCode: http.StatusNotFound,
+			wantValue:      "",
+		},
+		{
+			name:           "fail with unsupported metric type",
+			method:         http.MethodGet,
+			mType:          "unsupported",
+			mName:          "PollCount",
+			wantStatusCode: http.StatusBadRequest,
 			wantValue:      "",
 		},
 		{
@@ -426,6 +450,15 @@ func TestGetHandler(t *testing.T) {
 			wantContentType: "",
 		},
 		{
+			name:            "fail with invalid JSON in request body",
+			method:          http.MethodPost,
+			contentType:     "application/json",
+			body:            ``,
+			wantStatusCode:  http.StatusBadRequest,
+			wantValue:       "",
+			wantContentType: "text/plain; charset=utf-8",
+		},
+		{
 			name:            "fail when counter metric not found",
 			method:          http.MethodPost,
 			contentType:     "application/json",
@@ -440,6 +473,15 @@ func TestGetHandler(t *testing.T) {
 			contentType:     "application/json",
 			body:            `{"id":"UnknownGaugeMetric","type":"gauge"}`,
 			wantStatusCode:  http.StatusNotFound,
+			wantValue:       "",
+			wantContentType: "text/plain; charset=utf-8",
+		},
+		{
+			name:            "fail with unsupported metric type",
+			method:          http.MethodPost,
+			contentType:     "application/json",
+			body:            `{"id":"PollCount","type":"unsupported"}`,
+			wantStatusCode:  http.StatusBadRequest,
 			wantValue:       "",
 			wantContentType: "text/plain; charset=utf-8",
 		},
@@ -468,10 +510,12 @@ func TestGetHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			target := fmt.Sprintf("/value")
-			req, err := http.NewRequest(tt.method, ts.URL+target, strings.NewReader(tt.body))
+			buf, err := compressWithGzip(tt.body)
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, ts.URL+"/value", buf)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
+			req.Header.Set("Content-Encoding", "gzip")
 
 			// Act
 			resp, err := ts.Client().Do(req)
