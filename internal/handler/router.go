@@ -41,9 +41,9 @@ func MetricRouter(s Storage, cfg config.ServerConfig) chi.Router {
 	r.With(textPlainContentType).Get("/value/{mType}/{mName}", getMetricHandler(s))
 	r.With(textPlainContentType).Get("/", getMetricListHandler(s))
 
-	applicationJsonContentType := middleware.AllowContentType("application/json")
-	r.With(applicationJsonContentType).Post("/update", updateHandler(s, cfg.FileStoragePath))
-	r.With(applicationJsonContentType).Post("/value", getHandler(s))
+	applicationJSONContentType := middleware.AllowContentType("application/json")
+	r.With(applicationJSONContentType).Post("/update", updateHandler(s, cfg.FileStoragePath))
+	r.With(applicationJSONContentType).Post("/value", getHandler(s))
 	return r
 }
 
