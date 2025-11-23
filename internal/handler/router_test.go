@@ -647,9 +647,10 @@ func TestStoreMetric(t *testing.T) {
 	// Assert
 	data, err := os.ReadFile(tmpFile.Name())
 	require.NoError(t, err)
-	assert.JSONEq(
+	assert.Equal(
 		t,
 		`[{"id":"LastGC","type":"gauge","value":1257894000000000000},{"id":"NumGC","type":"counter","delta":42}]`,
 		string(data),
 	)
+	fmt.Println(string(data))
 }
