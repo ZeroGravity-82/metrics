@@ -656,6 +656,7 @@ func TestStoreMetric(t *testing.T) {
 	expectedJSON := `[{"id":"LastGC","type":"gauge","value":1257894000000000000},{"id":"NumGC","type":"counter","delta":42}]`
 	var expectedMetricSlice []model.Metrics
 	err = json.Unmarshal([]byte(expectedJSON), &expectedMetricSlice)
+	require.NoError(t, err)
 
 	assert.Equal(t, expectedMetricSlice, actualMetricSlice)
 }
