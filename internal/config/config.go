@@ -10,9 +10,12 @@ import (
 )
 
 const (
-	defaultServerAddr     = "localhost:8080"
-	defaultReportInterval = 10
-	defaultPollInterval   = 2
+	defaultServerAddr      = "localhost:8080"
+	defaultReportInterval  = 10
+	defaultPollInterval    = 2
+	defaultStoreInterval   = 300
+	defaultFileStoragePath = "/tmp/metrics.json"
+	defaultRestore         = false
 )
 
 type AgentConfig struct {
@@ -21,12 +24,18 @@ type AgentConfig struct {
 	PollInterval   int
 }
 type ServerConfig struct {
-	ServerAddr string
+	ServerAddr      string
+	StoreInterval   int
+	FileStoragePath string
+	Restore         bool
 }
 
 func GetServerConfig() (ServerConfig, error) {
 	var serverAddrFlag string
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	storeIntervalFlag := flag.Int("i", defaultStoreInterval, "интервал сохранения метрик на диск")
+	fileStoragePathFlag := flag.String("f", defaultFileStoragePath, "путь до файла с метриками")
+	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
 	flag.Parse()
 
 	cfg := ServerConfig{}
@@ -34,9 +43,59 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	storeInterval, err := getStoreInterval(storeIntervalFlag)
+	if err != nil {
+		return cfg, err
+	}
+	fileStoragePath, err := getFileStoragePath(fileStoragePathFlag)
+	if err != nil {
+		return cfg, err
+	}
+	restore, err := getRestore(restoreFlag)
+	if err != nil {
+		return cfg, err
+	}
 
 	cfg.ServerAddr = serverAddr
+	cfg.StoreInterval = storeInterval
+	cfg.FileStoragePath = fileStoragePath
+	cfg.Restore = restore
 	return cfg, nil
+}
+
+func getStoreInterval(storeIntervalFlag *int) (int, error) {
+	storeIntervalEnvStr, ok := os.LookupEnv("STORE_INTERVAL")
+	if ok {
+		storeIntervalEnv, err := strconv.Atoi(storeIntervalEnvStr)
+		if err != nil {
+			return 0, err
+		}
+		return storeIntervalEnv, nil
+	} else {
+		return *storeIntervalFlag, nil
+	}
+}
+
+func getFileStoragePath(fileStoragePathFlag *string) (string, error) {
+	fileStoragePathEnvStr, ok := os.LookupEnv("FILE_STORAGE_PATH")
+	if ok {
+		return fileStoragePathEnvStr, nil
+	} else {
+		return *fileStoragePathFlag, nil
+	}
+}
+
+func getRestore(restoreFlag *bool) (bool, error) {
+	restoreEnvStr, ok := os.LookupEnv("RESTORE")
+	if ok {
+		restoreEnv, err := strconv.ParseBool(restoreEnvStr)
+		if err != nil {
+			return false, err
+		}
+		return restoreEnv, nil
+	} else {
+		return *restoreFlag, nil
+	}
 }
 
 func getServerAddr(serverAddrFlag string) (string, error) {

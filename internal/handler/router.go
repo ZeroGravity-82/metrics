@@ -1,16 +1,19 @@
 package handler
 
 import (
+	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"zerogravity-82/metrics/internal/config"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -26,7 +29,7 @@ type Storage interface {
 	GetAll() map[string]model.Metrics
 }
 
-func MetricRouter(s Storage) chi.Router {
+func MetricRouter(s Storage, cfg config.ServerConfig) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
@@ -34,12 +37,12 @@ func MetricRouter(s Storage) chi.Router {
 		withGzip,
 	)
 	textPlainContentType := middleware.AllowContentType("text/plain")
-	r.With(textPlainContentType).Post("/update/{mType}/{mName}/{mValue}", updateMetricHandler(s))
+	r.With(textPlainContentType).Post("/update/{mType}/{mName}/{mValue}", updateMetricHandler(s, cfg.FileStoragePath))
 	r.With(textPlainContentType).Get("/value/{mType}/{mName}", getMetricHandler(s))
 	r.With(textPlainContentType).Get("/", getMetricListHandler(s))
 
 	applicationJsonContentType := middleware.AllowContentType("application/json")
-	r.With(applicationJsonContentType).Post("/update", updateHandler(s))
+	r.With(applicationJsonContentType).Post("/update", updateHandler(s, cfg.FileStoragePath))
 	r.With(applicationJsonContentType).Post("/value", getHandler(s))
 	return r
 }
@@ -104,7 +107,7 @@ func withGzip(next http.Handler) http.Handler {
 	})
 }
 
-func updateMetricHandler(s Storage) http.HandlerFunc {
+func updateMetricHandler(s Storage, fileStoragePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		mType := chi.URLParam(r, "mType")
 		mName := chi.URLParam(r, "mName")
@@ -129,7 +132,38 @@ func updateMetricHandler(s Storage) http.HandlerFunc {
 			logError(err, "Update metric error")
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
+		if err := storeMetrics(s.GetAll(), fileStoragePath); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
 	}
+}
+
+func storeMetrics(metrics map[string]model.Metrics, filename string) error {
+	metricSlice := make([]model.Metrics, 0, len(metrics))
+	for _, m := range metrics {
+		metricSlice = append(metricSlice, m)
+	}
+
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	data, err := json.Marshal(metricSlice)
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(data); err != nil {
+		return err
+	}
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
@@ -157,7 +191,7 @@ func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
 	return m, nil
 }
 
-func updateHandler(s Storage) http.HandlerFunc {
+func updateHandler(s Storage, fileStoragePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var metric model.Metrics
 		dec := json.NewDecoder(r.Body)
@@ -179,6 +213,10 @@ func updateHandler(s Storage) http.HandlerFunc {
 			}
 			logError(err, "Update metric error")
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		}
+		if err := storeMetrics(s.GetAll(), fileStoragePath); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	}
 }

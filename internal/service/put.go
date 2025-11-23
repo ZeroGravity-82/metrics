@@ -1,8 +1,13 @@
 package service
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"zerogravity-82/metrics/internal/config"
 
 	"zerogravity-82/metrics/internal/model"
 )
@@ -16,10 +21,39 @@ type MemStorage struct {
 	metrics map[string]model.Metrics
 }
 
-func NewMemStorage() MemStorage {
-	return MemStorage{
+func NewMemStorage(cfg config.ServerConfig) (*MemStorage, error) {
+	ms := MemStorage{
 		metrics: make(map[string]model.Metrics),
 	}
+	if cfg.Restore {
+		if err := restoreMetrics(ms, cfg.FileStoragePath); err != nil {
+			return nil, err
+		}
+	}
+	return &ms, nil
+}
+
+func restoreMetrics(ms MemStorage, filename string) error {
+	file, err := os.OpenFile(filename, os.O_RDONLY, 0666)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	reader := bufio.NewReader(file)
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+	var metricSlice []model.Metrics
+	if err := json.Unmarshal(data, &metricSlice); err != nil {
+		return err
+	}
+	for _, m := range metricSlice {
+		ms.metrics[m.ID] = m
+	}
+	return nil
 }
 
 func (ms MemStorage) UpdateMetric(m model.Metrics) error {
