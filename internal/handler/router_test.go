@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -647,10 +648,14 @@ func TestStoreMetric(t *testing.T) {
 	// Assert
 	data, err := os.ReadFile(tmpFile.Name())
 	require.NoError(t, err)
-	assert.Equal(
-		t,
-		`[{"id":"LastGC","type":"gauge","value":1257894000000000000},{"id":"NumGC","type":"counter","delta":42}]`,
-		string(data),
-	)
-	fmt.Println(string(data))
+
+	var actualMetricSlice []model.Metrics
+	err = json.Unmarshal(data, &actualMetricSlice)
+	require.NoError(t, err)
+
+	expectedJSON := `[{"id":"LastGC","type":"gauge","value":1257894000000000000},{"id":"NumGC","type":"counter","delta":42}]`
+	var expectedMetricSlice []model.Metrics
+	err = json.Unmarshal([]byte(expectedJSON), &expectedMetricSlice)
+
+	assert.Equal(t, expectedMetricSlice, actualMetricSlice)
 }
