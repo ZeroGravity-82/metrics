@@ -10,11 +10,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"zerogravity-82/metrics/internal/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/service"
 )
@@ -621,4 +621,35 @@ func TestGetMetricListHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStoreMetric(t *testing.T) {
+	// Arrange
+	metrics := make(map[string]model.Metrics)
+	metrics["LastGC"] = model.Metrics{
+		ID:    "LastGC",
+		MType: "gauge",
+		Value: float64Pointer(1257894000000000000),
+	}
+	metrics["NumGC"] = model.Metrics{
+		ID:    "NumGC",
+		MType: "counter",
+		Delta: int64Pointer(42),
+	}
+	tmpFile, err := os.CreateTemp("", "metrics*.json")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	// Act
+	err = storeMetrics(metrics, tmpFile.Name())
+	require.NoError(t, err)
+
+	// Assert
+	data, err := os.ReadFile(tmpFile.Name())
+	require.NoError(t, err)
+	assert.JSONEq(
+		t,
+		`[{"id":"LastGC","type":"gauge","value":1257894000000000000},{"id":"NumGC","type":"counter","delta":42}]`,
+		string(data),
+	)
 }

@@ -13,12 +13,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"zerogravity-82/metrics/internal/config"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog/log"
 
+	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/service"
 )
