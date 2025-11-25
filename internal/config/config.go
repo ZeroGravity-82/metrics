@@ -62,51 +62,48 @@ func GetServerConfig() (ServerConfig, error) {
 
 func getStoreInterval(storeIntervalFlag *int) (int, error) {
 	storeIntervalEnvStr, ok := os.LookupEnv("STORE_INTERVAL")
-	if ok {
-		storeIntervalEnv, err := strconv.Atoi(storeIntervalEnvStr)
-		if err != nil {
-			return 0, fmt.Errorf("failed to convert STORE_INTERNAL environment variable to integer: %w", err)
-		}
-		return storeIntervalEnv, nil
-	} else {
+	if !ok {
 		return *storeIntervalFlag, nil
 	}
+	storeIntervalEnv, err := strconv.Atoi(storeIntervalEnvStr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert STORE_INTERNAL environment variable to integer: %w", err)
+	}
+	return storeIntervalEnv, nil
 }
 
 func getFileStoragePath(fileStoragePathFlag *string) string {
 	fileStoragePathEnvStr, ok := os.LookupEnv("FILE_STORAGE_PATH")
-	if ok {
-		return fileStoragePathEnvStr
-	} else {
+	if !ok {
 		return *fileStoragePathFlag
 	}
+	return fileStoragePathEnvStr
 }
 
 func getRestore(restoreFlag *bool) (bool, error) {
 	restoreEnvStr, ok := os.LookupEnv("RESTORE")
-	if ok {
-		restoreEnv, err := strconv.ParseBool(restoreEnvStr)
-		if err != nil {
-			return false, fmt.Errorf("failed to convert RESTORE environment variable to boolean: %w", err)
-		}
-		return restoreEnv, nil
-	} else {
+	if !ok {
 		return *restoreFlag, nil
 	}
+	restoreEnv, err := strconv.ParseBool(restoreEnvStr)
+	if err != nil {
+		return false, fmt.Errorf("failed to convert RESTORE environment variable to boolean: %w", err)
+	}
+	return restoreEnv, nil
 }
 
 func getServerAddr(serverAddrFlag string) (string, error) {
 	serverAddrEnv, ok := os.LookupEnv("ADDRESS")
-	if ok {
-		if err := validateServerAddr(serverAddrEnv); err != nil {
-			return "", err
-		}
-		return serverAddrEnv, nil
-	} else if serverAddrFlag != "" {
+	if !ok && serverAddrFlag != "" {
 		return serverAddrFlag, nil
-	} else {
+	}
+	if !ok {
 		return defaultServerAddr, nil
 	}
+	if err := validateServerAddr(serverAddrEnv); err != nil {
+		return "", err
+	}
+	return serverAddrEnv, nil
 }
 
 func serverAddrUsage() string {
@@ -160,26 +157,24 @@ func GetAgentConfig() (AgentConfig, error) {
 
 func getReportInterval(reportIntervalFlag *int) (int, error) {
 	reportIntervalEnvStr, ok := os.LookupEnv("REPORT_INTERVAL")
-	if ok {
-		reportIntervalEnv, err := strconv.Atoi(reportIntervalEnvStr)
-		if err != nil {
-			return 0, fmt.Errorf("failed to convert REPORT_INTERVAL environment variable to integer: %w", err)
-		}
-		return reportIntervalEnv, nil
-	} else {
+	if !ok {
 		return *reportIntervalFlag, nil
 	}
+	reportIntervalEnv, err := strconv.Atoi(reportIntervalEnvStr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert REPORT_INTERVAL environment variable to integer: %w", err)
+	}
+	return reportIntervalEnv, nil
 }
 
 func getPollInterval(pollIntervalFlag *int) (int, error) {
 	pollIntervalEnvStr, ok := os.LookupEnv("POLL_INTERVAL")
-	if ok {
-		pollIntervalEnv, err := strconv.Atoi(pollIntervalEnvStr)
-		if err != nil {
-			return 0, fmt.Errorf("failed to convert POLL_INTERVAL environment variable to integer: %w", err)
-		}
-		return pollIntervalEnv, nil
-	} else {
+	if !ok {
 		return *pollIntervalFlag, nil
 	}
+	pollIntervalEnv, err := strconv.Atoi(pollIntervalEnvStr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert POLL_INTERVAL environment variable to integer: %w", err)
+	}
+	return pollIntervalEnv, nil
 }

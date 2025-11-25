@@ -93,10 +93,10 @@ func withGzip(next http.Handler) http.Handler {
 			if err != nil {
 				if errors.Is(err, gzip.ErrChecksum) || errors.Is(err, gzip.ErrHeader) {
 					ow.WriteHeader(http.StatusBadRequest)
-				} else {
-					ow.WriteHeader(http.StatusInternalServerError)
-					logError(err, "Request error")
+					return
 				}
+				ow.WriteHeader(http.StatusInternalServerError)
+				logError(err, "Request error")
 				return
 			}
 			defer cr.Close()
