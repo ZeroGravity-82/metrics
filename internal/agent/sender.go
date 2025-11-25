@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"runtime"
 	"strings"
 	"time"
@@ -105,12 +106,15 @@ func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) er
 	}
 
 	serverAddr = addDefaultURLSchema(serverAddr)
-	url := fmt.Sprintf("%s/update", serverAddr)
+	URL, err := url.JoinPath(serverAddr, "/update")
+	if err != nil {
+		return err
+	}
 	_, err = httpClient.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
 		SetBody(gzipBz).
-		Post(url)
+		Post(URL)
 	if err != nil {
 		return err
 	}
