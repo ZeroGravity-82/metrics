@@ -39,16 +39,16 @@ func restoreMetrics(ms MemStorage, filename string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("failed to open the file to restore metrics: %w", err)
 	}
 	reader := bufio.NewReader(file)
 	data, err := io.ReadAll(reader)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read metrics from the file: %w", err)
 	}
 	var metricSlice []model.Metrics
 	if err := json.Unmarshal(data, &metricSlice); err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshall metrics read from the file: %w", err)
 	}
 	for _, m := range metricSlice {
 		ms.metrics[m.ID] = m

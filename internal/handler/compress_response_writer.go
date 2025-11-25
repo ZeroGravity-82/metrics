@@ -2,6 +2,7 @@ package handler
 
 import (
 	"compress/gzip"
+	"fmt"
 	"io"
 	"net/http"
 )
@@ -25,7 +26,11 @@ func (c *compressWriter) Header() http.Header {
 }
 
 func (c *compressWriter) Write(p []byte) (int, error) {
-	return c.zw.Write(p)
+	n, err := c.zw.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("compressWriter: failed to write compressed data: %w", err)
+	}
+	return n, nil
 }
 
 func (c *compressWriter) WriteHeader(statusCode int) {
@@ -34,7 +39,10 @@ func (c *compressWriter) WriteHeader(statusCode int) {
 
 // Close закрывает gzip.Writer и досылает все данные из буфера.
 func (c *compressWriter) Close() error {
-	return c.zw.Close()
+	if err := c.zw.Close(); err != nil {
+		return fmt.Errorf("compressWriter: failed to close gzip writer: %w", err)
+	}
+	return nil
 }
 
 // compressReader реализует интерфейс io.ReadCloser и позволяет прозрачно для сервера
@@ -47,7 +55,7 @@ type compressReader struct {
 func newCompressReader(r io.ReadCloser) (*compressReader, error) {
 	zr, err := gzip.NewReader(r)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("compressReader: failed to create gzip reader: %w", err)
 	}
 
 	return &compressReader{
@@ -56,13 +64,18 @@ func newCompressReader(r io.ReadCloser) (*compressReader, error) {
 	}, nil
 }
 
-func (c compressReader) Read(p []byte) (n int, err error) {
-	return c.zr.Read(p)
+func (c compressReader) Read(p []byte) (int, error) {
+	n, err := c.zr.Read(p)
+	if err != nil && err != io.EOF {
+		return n, fmt.Errorf("compressReader: failed to read compressed data: %w", err)
+	}
+
+	return n, err
 }
 
 func (c *compressReader) Close() error {
 	if err := c.r.Close(); err != nil {
-		return err
+		return fmt.Errorf("compressReader: failed to close gzip reader: %w", err)
 	}
 	return c.zr.Close()
 }

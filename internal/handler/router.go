@@ -147,20 +147,20 @@ func storeMetrics(metrics map[string]model.Metrics, filename string) error {
 
 	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open the file to store metrics: %w", err)
 	}
 	defer file.Close()
 
 	writer := bufio.NewWriter(file)
 	data, err := json.Marshal(metricSlice)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal metrics before storing: %w", err)
 	}
 	if _, err := writer.Write(data); err != nil {
-		return err
+		return fmt.Errorf("failed to write metrics to the file: %w", err)
 	}
 	if err := writer.Flush(); err != nil {
-		return err
+		return fmt.Errorf("failed to flush to the file remaining metrics: %w", err)
 	}
 
 	return nil

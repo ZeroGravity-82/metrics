@@ -47,10 +47,7 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	fileStoragePath, err := getFileStoragePath(fileStoragePathFlag)
-	if err != nil {
-		return cfg, err
-	}
+	fileStoragePath := getFileStoragePath(fileStoragePathFlag)
 	restore, err := getRestore(restoreFlag)
 	if err != nil {
 		return cfg, err
@@ -68,7 +65,7 @@ func getStoreInterval(storeIntervalFlag *int) (int, error) {
 	if ok {
 		storeIntervalEnv, err := strconv.Atoi(storeIntervalEnvStr)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("failed to convert STORE_INTERNAL environment variable to integer: %w", err)
 		}
 		return storeIntervalEnv, nil
 	} else {
@@ -76,12 +73,12 @@ func getStoreInterval(storeIntervalFlag *int) (int, error) {
 	}
 }
 
-func getFileStoragePath(fileStoragePathFlag *string) (string, error) {
+func getFileStoragePath(fileStoragePathFlag *string) string {
 	fileStoragePathEnvStr, ok := os.LookupEnv("FILE_STORAGE_PATH")
 	if ok {
-		return fileStoragePathEnvStr, nil
+		return fileStoragePathEnvStr
 	} else {
-		return *fileStoragePathFlag, nil
+		return *fileStoragePathFlag
 	}
 }
 
@@ -90,7 +87,7 @@ func getRestore(restoreFlag *bool) (bool, error) {
 	if ok {
 		restoreEnv, err := strconv.ParseBool(restoreEnvStr)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("failed to convert RESTORE environment variable to boolean: %w", err)
 		}
 		return restoreEnv, nil
 	} else {
@@ -166,7 +163,7 @@ func getReportInterval(reportIntervalFlag *int) (int, error) {
 	if ok {
 		reportIntervalEnv, err := strconv.Atoi(reportIntervalEnvStr)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("failed to convert REPORT_INTERVAL environment variable to integer: %w", err)
 		}
 		return reportIntervalEnv, nil
 	} else {
@@ -179,7 +176,7 @@ func getPollInterval(pollIntervalFlag *int) (int, error) {
 	if ok {
 		pollIntervalEnv, err := strconv.Atoi(pollIntervalEnvStr)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("failed to convert POLL_INTERVAL environment variable to integer: %w", err)
 		}
 		return pollIntervalEnv, nil
 	} else {

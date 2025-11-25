@@ -108,7 +108,7 @@ func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) er
 	serverAddr = addDefaultURLSchema(serverAddr)
 	URL, err := url.JoinPath(serverAddr, "/update")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to build URL: %w", err)
 	}
 	_, err = httpClient.R().
 		SetHeader("Content-Type", "application/json").
@@ -116,7 +116,7 @@ func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) er
 		SetBody(gzipBz).
 		Post(URL)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to send the request: %w", err)
 	}
 	return nil
 }
@@ -124,15 +124,15 @@ func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) er
 func marshalAndCompress(m model.Metrics) ([]byte, error) {
 	jsonBz, err := json.Marshal(m)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal the metric: %w", err)
 	}
 	var gzipBuf bytes.Buffer
-	zr := gzip.NewWriter(&gzipBuf)
-	if _, err := zr.Write(jsonBz); err != nil {
-		return nil, err
+	zw := gzip.NewWriter(&gzipBuf)
+	if _, err := zw.Write(jsonBz); err != nil {
+		return nil, fmt.Errorf("failed to gzip the metric: %w", err)
 	}
-	if err := zr.Close(); err != nil {
-		return nil, err
+	if err := zw.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close gzip metric writer: %w", err)
 	}
 	return gzipBuf.Bytes(), nil
 }
