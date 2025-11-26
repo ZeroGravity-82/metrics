@@ -12,6 +12,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,6 +30,7 @@ func float64Pointer(v float64) *float64 {
 }
 
 func TestUpdateMetricHandler(t *testing.T) {
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
@@ -36,7 +38,7 @@ func TestUpdateMetricHandler(t *testing.T) {
 	require.NoError(t, err)
 	ms, err := service.NewMemStorage(cfg)
 	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg))
+	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -177,6 +179,7 @@ func TestUpdateMetricHandler(t *testing.T) {
 }
 
 func TestUpdateHandler(t *testing.T) {
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
@@ -184,7 +187,7 @@ func TestUpdateHandler(t *testing.T) {
 	require.NoError(t, err)
 	ms, err := service.NewMemStorage(cfg)
 	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg))
+	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -346,6 +349,7 @@ func compressWithGzip(body string) (*bytes.Buffer, error) {
 }
 
 func TestGetMetricHandler(t *testing.T) {
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
@@ -353,7 +357,7 @@ func TestGetMetricHandler(t *testing.T) {
 	require.NoError(t, err)
 	ms, err := service.NewMemStorage(cfg)
 	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg))
+	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -440,6 +444,7 @@ func TestGetMetricHandler(t *testing.T) {
 }
 
 func TestGetHandler(t *testing.T) {
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
@@ -447,7 +452,7 @@ func TestGetHandler(t *testing.T) {
 	require.NoError(t, err)
 	ms, err := service.NewMemStorage(cfg)
 	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg))
+	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -563,6 +568,7 @@ func TestGetHandler(t *testing.T) {
 }
 
 func TestGetMetricListHandler(t *testing.T) {
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
@@ -570,7 +576,7 @@ func TestGetMetricListHandler(t *testing.T) {
 	require.NoError(t, err)
 	ms, err := service.NewMemStorage(cfg)
 	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg))
+	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
 	defer ts.Close()
 
 	tests := []struct {

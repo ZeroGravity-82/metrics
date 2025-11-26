@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
@@ -24,7 +24,7 @@ type metrics struct {
 	randomValue float64
 }
 
-func Run(cfg config.AgentConfig) {
+func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 	m := metrics{}
 	m.memStat = make(map[string]float64)
 
@@ -37,7 +37,7 @@ func Run(cfg config.AgentConfig) {
 
 		if time.Since(lastSentTime) >= time.Duration(cfg.ReportInterval)*time.Second {
 			lastSentTime = time.Now()
-			sendReport(cfg.ServerAddr, &m, httpClient)
+			sendReport(cfg.ServerAddr, &m, httpClient, logger)
 			m.pollCount = 0
 		}
 	}
@@ -77,25 +77,25 @@ func pollMetrics(m *metrics) {
 	m.randomValue = float64(rand.Uint32())
 }
 
-func sendReport(serverAddr string, metrics *metrics, httpClient *resty.Client) {
+func sendReport(serverAddr string, metrics *metrics, httpClient *resty.Client, logger zerolog.Logger) {
 	for name, value := range metrics.memStat {
 		m := model.Metrics{ID: name, MType: model.Gauge, Value: &value}
 		err := sendMetric(serverAddr, m, httpClient)
 		if err != nil {
-			logSendReportError(err, m)
+			logSendReportError(err, m, logger)
 		}
 	}
 
 	m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &metrics.pollCount}
 	err := sendMetric(serverAddr, m, httpClient)
 	if err != nil {
-		logSendReportError(err, m)
+		logSendReportError(err, m, logger)
 	}
 
 	m = model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &metrics.randomValue}
 	err = sendMetric(serverAddr, m, httpClient)
 	if err != nil {
-		logSendReportError(err, m)
+		logSendReportError(err, m, logger)
 	}
 }
 
@@ -156,8 +156,8 @@ func addDefaultURLSchema(URL string) string {
 	return urlPrefix + host + ":" + port
 }
 
-func logSendReportError(err error, m model.Metrics) {
-	log.Error().
+func logSendReportError(err error, m model.Metrics, logger zerolog.Logger) {
+	logger.Error().
 		Str("metric", fmt.Sprintf("%v", m)).
 		Str("error", err.Error()).
 		Msg("Error on sending metric")

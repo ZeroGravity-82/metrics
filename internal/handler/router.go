@@ -16,7 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
@@ -29,85 +29,92 @@ type Storage interface {
 	GetAll() map[string]model.Metrics
 }
 
-func MetricRouter(s Storage, cfg config.ServerConfig) chi.Router {
+func MetricRouter(s Storage, cfg config.ServerConfig, logger zerolog.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
-		withLogging,
-		withGzip,
+		withLogging(logger),
+		withGzip(logger),
 	)
 	textPlainContentType := middleware.AllowContentType("text/plain")
-	r.With(textPlainContentType).Post("/update/{mType}/{mName}/{mValue}", updateMetricHandler(s, cfg.FileStoragePath))
-	r.With(textPlainContentType).Get("/value/{mType}/{mName}", getMetricHandler(s))
-	r.With(textPlainContentType).Get("/", getMetricListHandler(s))
+	r.With(textPlainContentType).Post(
+		"/update/{mType}/{mName}/{mValue}",
+		updateMetricHandler(s, cfg.FileStoragePath, logger),
+	)
+	r.With(textPlainContentType).Get("/value/{mType}/{mName}", getMetricHandler(s, logger))
+	r.With(textPlainContentType).Get("/", getMetricListHandler(s, logger))
 
 	applicationJSONContentType := middleware.AllowContentType("application/json")
-	r.With(applicationJSONContentType).Post("/update", updateHandler(s, cfg.FileStoragePath))
-	r.With(applicationJSONContentType).Post("/value", getHandler(s))
+	r.With(applicationJSONContentType).Post("/update", updateHandler(s, cfg.FileStoragePath, logger))
+	r.With(applicationJSONContentType).Post("/value", getHandler(s, logger))
 	return r
 }
 
-func withLogging(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		URI := r.RequestURI
-		method := r.Method
-		start := time.Now()
+func withLogging(logger zerolog.Logger) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			URI := r.RequestURI
+			method := r.Method
+			start := time.Now()
 
-		responseData := &responseData{
-			status: http.StatusOK,
-			size:   0,
-		}
-		lw := loggingResponseWriter{
-			ResponseWriter: w,
-			responseData:   responseData,
-		}
-		next.ServeHTTP(&lw, r)
+			responseData := &responseData{
+				status: http.StatusOK,
+				size:   0,
+			}
+			lw := loggingResponseWriter{
+				ResponseWriter: w,
+				responseData:   responseData,
+			}
+			next.ServeHTTP(&lw, r)
 
-		duration := time.Since(start)
-		log.Info().
-			Str("uri", URI).
-			Str("method", method).
-			Str("duration", duration.String()).
-			Str("status", strconv.Itoa(responseData.status)).
-			Str("size", strconv.Itoa(responseData.size)).
-			Msg("Request processed")
-	})
+			duration := time.Since(start)
+			logger.Info().
+				Str("uri", URI).
+				Str("method", method).
+				Str("duration", duration.String()).
+				Str("status", strconv.Itoa(responseData.status)).
+				Str("size", strconv.Itoa(responseData.size)).
+				Msg("Request processed")
+		})
+	}
 }
 
-func withGzip(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ow := w
-		acceptEncoding := r.Header.Get("Accept-Encoding")
-		supportGzip := strings.Contains(acceptEncoding, "gzip")
-		if supportGzip {
-			cw := newCompressWriter(w)
-			defer cw.Close()
-			cw.Header().Set("Content-Encoding", "gzip")
-			ow = cw
-		}
+func withGzip(logger zerolog.Logger) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ow := w
+			acceptEncoding := r.Header.Get("Accept-Encoding")
+			supportGzip := strings.Contains(acceptEncoding, "gzip")
+			if supportGzip {
+				cw := newCompressWriter(w)
+				defer cw.Close()
+				cw.Header().Set("Content-Encoding", "gzip")
+				ow = cw
+			}
 
-		contentEncoding := r.Header.Get("Content-Encoding")
-		sendsGzip := strings.Contains(contentEncoding, "gzip")
-		if sendsGzip {
-			cr, err := newCompressReader(r.Body)
-			if err != nil {
-				if errors.Is(err, gzip.ErrChecksum) || errors.Is(err, gzip.ErrHeader) {
-					ow.WriteHeader(http.StatusBadRequest)
+			contentEncoding := r.Header.Get("Content-Encoding")
+			sendsGzip := strings.Contains(contentEncoding, "gzip")
+			if sendsGzip {
+				cr, err := newCompressReader(r.Body)
+				if err != nil {
+					if errors.Is(err, gzip.ErrChecksum) || errors.Is(err, gzip.ErrHeader) {
+						ow.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					ow.WriteHeader(http.StatusInternalServerError)
+					logError(err, "Request error", logger)
 					return
 				}
-				ow.WriteHeader(http.StatusInternalServerError)
-				logError(err, "Request error")
-				return
+				defer cr.Close()
+				r.Body = cr
 			}
-			defer cr.Close()
-			r.Body = cr
-		}
 
-		next.ServeHTTP(ow, r)
-	})
+			next.ServeHTTP(ow, r)
+		})
+	}
 }
 
-func updateMetricHandler(s Storage, fileStoragePath string) http.HandlerFunc {
+func updateMetricHandler(s Storage, fileStoragePath string, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		mType := chi.URLParam(r, "mType")
 		mName := chi.URLParam(r, "mName")
@@ -129,7 +136,7 @@ func updateMetricHandler(s Storage, fileStoragePath string) http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			logError(err, "Update metric error")
+			logError(err, "Update metric error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 		if err := storeMetrics(s.GetAll(), fileStoragePath); err != nil {
@@ -191,7 +198,7 @@ func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
 	return m, nil
 }
 
-func updateHandler(s Storage, fileStoragePath string) http.HandlerFunc {
+func updateHandler(s Storage, fileStoragePath string, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var metric model.Metrics
 		dec := json.NewDecoder(r.Body)
@@ -211,7 +218,7 @@ func updateHandler(s Storage, fileStoragePath string) http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			logError(err, "Update metric error")
+			logError(err, "Update metric error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 		if err := storeMetrics(s.GetAll(), fileStoragePath); err != nil {
@@ -221,7 +228,7 @@ func updateHandler(s Storage, fileStoragePath string) http.HandlerFunc {
 	}
 }
 
-func getMetricHandler(s Storage) http.HandlerFunc {
+func getMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		mType := chi.URLParam(r, "mType")
 		mName := chi.URLParam(r, "mName")
@@ -235,7 +242,7 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 			}
 			w.Header().Set("Content-Type", "text/plain")
 			if _, err := fmt.Fprintf(w, "%v", *metric.Delta); err != nil {
-				logWriteResponseError(err)
+				logWriteResponseError(err, logger)
 			}
 		case model.Gauge:
 			metric, err := s.GetMetric(mType, mName)
@@ -245,7 +252,7 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 			}
 			w.Header().Set("Content-Type", "text/plain")
 			if _, err = fmt.Fprintf(w, "%v", *metric.Value); err != nil {
-				logWriteResponseError(err)
+				logWriteResponseError(err, logger)
 			}
 		default:
 			http.Error(w, fmt.Sprintf("unsupported metric type: %s", mType), http.StatusBadRequest)
@@ -254,7 +261,7 @@ func getMetricHandler(s Storage) http.HandlerFunc {
 	}
 }
 
-func getHandler(s Storage) http.HandlerFunc {
+func getHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var metric model.Metrics
 		dec := json.NewDecoder(r.Body)
@@ -275,12 +282,12 @@ func getHandler(s Storage) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		enc := json.NewEncoder(w)
 		if err := enc.Encode(metric); err != nil {
-			logWriteResponseError(err)
+			logWriteResponseError(err, logger)
 		}
 	}
 }
 
-func getMetricListHandler(s Storage) http.HandlerFunc {
+func getMetricListHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var data struct {
 			Counters []model.Metrics
@@ -336,15 +343,15 @@ func getMetricListHandler(s Storage) http.HandlerFunc {
 `))
 		w.Header().Set("Content-Type", "text/html")
 		if err := t.Execute(w, data); err != nil {
-			logWriteResponseError(err)
+			logWriteResponseError(err, logger)
 		}
 	}
 }
 
-func logWriteResponseError(err error) {
-	logError(err, "Error during writing response")
+func logWriteResponseError(err error, logger zerolog.Logger) {
+	logError(err, "Error during writing response", logger)
 }
 
-func logError(err error, msg string) {
-	log.Error().Str("error", err.Error()).Msg(msg)
+func logError(err error, msg string, logger zerolog.Logger) {
+	logger.Error().Str("error", err.Error()).Msg(msg)
 }

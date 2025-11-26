@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"zerogravity-82/metrics/internal/config"
 
+	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 )
 

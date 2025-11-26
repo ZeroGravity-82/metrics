@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -54,6 +56,7 @@ func TestPollMetrics(t *testing.T) {
 
 func TestSendReport(t *testing.T) {
 	// Arrange
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	metrics := metrics{}
 	metrics.memStat = make(map[string]float64)
 	pollMetrics(&metrics)
@@ -89,7 +92,7 @@ func TestSendReport(t *testing.T) {
 	httpClient := resty.New()
 
 	// Act
-	sendReport(server.URL, &metrics, httpClient)
+	sendReport(server.URL, &metrics, httpClient, logger)
 
 	// Assert
 	assert.Equal(t, len(metrics.memStat)+2, len(sentMetrics))
