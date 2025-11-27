@@ -55,6 +55,9 @@ func NewFileStorage(cfg config.ServerConfig) (*FileStorage, error) {
 func restoreMetrics(ms MemStorage, file *os.File) error {
 	reader := bufio.NewReader(file)
 	data, err := io.ReadAll(reader)
+	if len(data) == 0 {
+		return nil // файл был только что создан пустым, не из чего восстанавливать метрики
+	}
 	if err != nil {
 		return fmt.Errorf("failed to read metrics from the file: %w", err)
 	}
