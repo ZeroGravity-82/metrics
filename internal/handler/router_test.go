@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -16,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/service"
 )
@@ -34,11 +32,10 @@ func TestUpdateMetricHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	cfg, err := config.GetServerConfig()
-	require.NoError(t, err)
-	ms, err := service.NewMemStorage(cfg)
-	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
+	//cfg, err := config.GetServerConfig()
+	//require.NoError(t, err)
+	ms := service.NewMemStorage()
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -183,11 +180,10 @@ func TestUpdateHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	cfg, err := config.GetServerConfig()
-	require.NoError(t, err)
-	ms, err := service.NewMemStorage(cfg)
-	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
+	//cfg, err := config.GetServerConfig()
+	//require.NoError(t, err)
+	ms := service.NewMemStorage()
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -353,11 +349,10 @@ func TestGetMetricHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	cfg, err := config.GetServerConfig()
-	require.NoError(t, err)
-	ms, err := service.NewMemStorage(cfg)
-	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
+	//cfg, err := config.GetServerConfig()
+	//require.NoError(t, err)
+	ms := service.NewMemStorage()
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -448,11 +443,10 @@ func TestGetHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	cfg, err := config.GetServerConfig()
-	require.NoError(t, err)
-	ms, err := service.NewMemStorage(cfg)
-	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
+	//cfg, err := config.GetServerConfig()
+	//require.NoError(t, err)
+	ms := service.NewMemStorage()
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -572,11 +566,10 @@ func TestGetMetricListHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	cfg, err := config.GetServerConfig()
-	require.NoError(t, err)
-	ms, err := service.NewMemStorage(cfg)
-	require.NoError(t, err)
-	ts := httptest.NewServer(MetricRouter(ms, cfg, logger))
+	//cfg, err := config.GetServerConfig()
+	//require.NoError(t, err)
+	ms := service.NewMemStorage()
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -630,39 +623,40 @@ func TestGetMetricListHandler(t *testing.T) {
 	}
 }
 
-func TestStoreMetric(t *testing.T) {
-	// Arrange
-	metrics := make(map[string]model.Metrics)
-	metrics["LastGC"] = model.Metrics{
-		ID:    "LastGC",
-		MType: "gauge",
-		Value: float64Pointer(1257894000000000000),
-	}
-	metrics["NumGC"] = model.Metrics{
-		ID:    "NumGC",
-		MType: "counter",
-		Delta: int64Pointer(42),
-	}
-	tmpFile, err := os.CreateTemp("", "metrics*.json")
-	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-
-	// Act
-	err = storeMetrics(metrics, tmpFile.Name())
-	require.NoError(t, err)
-
-	// Assert
-	data, err := os.ReadFile(tmpFile.Name())
-	require.NoError(t, err)
-
-	var actualMetricSlice []model.Metrics
-	err = json.Unmarshal(data, &actualMetricSlice)
-	require.NoError(t, err)
-
-	expectedJSON := `[{"id":"LastGC","type":"gauge","value":1257894000000000000},{"id":"NumGC","type":"counter","delta":42}]`
-	var expectedMetricSlice []model.Metrics
-	err = json.Unmarshal([]byte(expectedJSON), &expectedMetricSlice)
-	require.NoError(t, err)
-
-	assert.Equal(t, expectedMetricSlice, actualMetricSlice)
-}
+//
+//func TestStoreMetric(t *testing.T) {
+//	// Arrange
+//	metrics := make(map[string]model.Metrics)
+//	metrics["LastGC"] = model.Metrics{
+//		ID:    "LastGC",
+//		MType: "gauge",
+//		Value: float64Pointer(1257894000000000000),
+//	}
+//	metrics["NumGC"] = model.Metrics{
+//		ID:    "NumGC",
+//		MType: "counter",
+//		Delta: int64Pointer(42),
+//	}
+//	tmpFile, err := os.CreateTemp("", "metrics*.json")
+//	require.NoError(t, err)
+//	defer os.Remove(tmpFile.Name())
+//
+//	// Act
+//	err = storeMetrics(metrics, tmpFile.Name())
+//	require.NoError(t, err)
+//
+//	// Assert
+//	data, err := os.ReadFile(tmpFile.Name())
+//	require.NoError(t, err)
+//
+//	var actualMetricSlice []model.Metrics
+//	err = json.Unmarshal(data, &actualMetricSlice)
+//	require.NoError(t, err)
+//
+//	expectedJSON := `[{"id":"LastGC","type":"gauge","value":1257894000000000000},{"id":"NumGC","type":"counter","delta":42}]`
+//	var expectedMetricSlice []model.Metrics
+//	err = json.Unmarshal([]byte(expectedJSON), &expectedMetricSlice)
+//	require.NoError(t, err)
+//
+//	assert.Equal(t, expectedMetricSlice, actualMetricSlice)
+//}

@@ -23,14 +23,15 @@ func main() {
 	}
 
 	// Storage
-	ms, err := service.NewMemStorage(cfg)
+	fs, err := service.NewFileStorage(cfg)
 	if err != nil {
-		logger.Fatal().Str("error", err.Error()).Msg("MemStorage error")
+		logger.Fatal().Str("error", err.Error()).Msg("Storage error")
 	}
+	defer fs.Close()
 
 	// HTTP server
 	logger.Info().Str("address", cfg.ServerAddr).Msg("Server started")
-	err = http.ListenAndServe(cfg.ServerAddr, handler.MetricRouter(ms, cfg, logger))
+	err = http.ListenAndServe(cfg.ServerAddr, handler.MetricRouter(fs, logger))
 	if !errors.Is(err, http.ErrServerClosed) {
 		logger.Fatal().Msg(err.Error())
 	}

@@ -1,14 +1,12 @@
 package handler
 
 import (
-	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,7 +16,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog"
 
-	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/service"
 )
@@ -29,7 +26,7 @@ type Storage interface {
 	GetAll() map[string]model.Metrics
 }
 
-func MetricRouter(s Storage, cfg config.ServerConfig, logger zerolog.Logger) chi.Router {
+func MetricRouter(s Storage, logger zerolog.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
@@ -39,13 +36,13 @@ func MetricRouter(s Storage, cfg config.ServerConfig, logger zerolog.Logger) chi
 	textPlainContentType := middleware.AllowContentType("text/plain")
 	r.With(textPlainContentType).Post(
 		"/update/{mType}/{mName}/{mValue}",
-		updateMetricHandler(s, cfg.FileStoragePath, logger),
+		updateMetricHandler(s, logger),
 	)
 	r.With(textPlainContentType).Get("/value/{mType}/{mName}", getMetricHandler(s, logger))
 	r.With(textPlainContentType).Get("/", getMetricListHandler(s, logger))
 
 	applicationJSONContentType := middleware.AllowContentType("application/json")
-	r.With(applicationJSONContentType).Post("/update", updateHandler(s, cfg.FileStoragePath, logger))
+	r.With(applicationJSONContentType).Post("/update", updateHandler(s, logger))
 	r.With(applicationJSONContentType).Post("/value", getHandler(s, logger))
 	return r
 }
@@ -114,7 +111,7 @@ func withGzip(logger zerolog.Logger) func(next http.Handler) http.Handler {
 	}
 }
 
-func updateMetricHandler(s Storage, fileStoragePath string, logger zerolog.Logger) http.HandlerFunc {
+func updateMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		mType := chi.URLParam(r, "mType")
 		mName := chi.URLParam(r, "mName")
@@ -139,38 +136,7 @@ func updateMetricHandler(s Storage, fileStoragePath string, logger zerolog.Logge
 			logError(err, "Update metric error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
-		if err := storeMetrics(s.GetAll(), fileStoragePath); err != nil {
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
 	}
-}
-
-func storeMetrics(metrics map[string]model.Metrics, filename string) error {
-	metricSlice := make([]model.Metrics, 0, len(metrics))
-	for _, m := range metrics {
-		metricSlice = append(metricSlice, m)
-	}
-
-	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-	if err != nil {
-		return fmt.Errorf("failed to open the file to store metrics: %w", err)
-	}
-	defer file.Close()
-
-	writer := bufio.NewWriter(file)
-	data, err := json.Marshal(metricSlice)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metrics before storing: %w", err)
-	}
-	if _, err := writer.Write(data); err != nil {
-		return fmt.Errorf("failed to write metrics to the file: %w", err)
-	}
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("failed to flush to the file remaining metrics: %w", err)
-	}
-
-	return nil
 }
 
 func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
@@ -198,7 +164,7 @@ func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
 	return m, nil
 }
 
-func updateHandler(s Storage, fileStoragePath string, logger zerolog.Logger) http.HandlerFunc {
+func updateHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var metric model.Metrics
 		dec := json.NewDecoder(r.Body)
@@ -220,10 +186,6 @@ func updateHandler(s Storage, fileStoragePath string, logger zerolog.Logger) htt
 			}
 			logError(err, "Update metric error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		}
-		if err := storeMetrics(s.GetAll(), fileStoragePath); err != nil {
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
 		}
 	}
 }

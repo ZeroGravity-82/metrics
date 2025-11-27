@@ -21,26 +21,38 @@ type MemStorage struct {
 	metrics map[string]model.Metrics
 }
 
-func NewMemStorage(cfg config.ServerConfig) (*MemStorage, error) {
+func NewMemStorage() *MemStorage {
+	return &MemStorage{
+		metrics: make(map[string]model.Metrics),
+	}
+}
+
+type FileStorage struct {
+	MemStorage
+	file *os.File
+}
+
+func NewFileStorage(cfg config.ServerConfig) (*FileStorage, error) {
 	ms := MemStorage{
 		metrics: make(map[string]model.Metrics),
 	}
+	file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the file with metrics: %w", err)
+	}
+	fs := FileStorage{
+		MemStorage: ms,
+		file:       file,
+	}
 	if cfg.Restore {
-		if err := restoreMetrics(ms, cfg.FileStoragePath); err != nil {
+		if err := restoreMetrics(ms, file); err != nil {
 			return nil, err
 		}
 	}
-	return &ms, nil
+	return &fs, nil
 }
 
-func restoreMetrics(ms MemStorage, filename string) error {
-	file, err := os.OpenFile(filename, os.O_RDONLY, 0666)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to open the file to restore metrics: %w", err)
-	}
+func restoreMetrics(ms MemStorage, file *os.File) error {
 	reader := bufio.NewReader(file)
 	data, err := io.ReadAll(reader)
 	if err != nil {
@@ -56,7 +68,7 @@ func restoreMetrics(ms MemStorage, filename string) error {
 	return nil
 }
 
-func (ms MemStorage) UpdateMetric(m model.Metrics) error {
+func (ms *MemStorage) UpdateMetric(m model.Metrics) error {
 	if len(m.ID) == 0 {
 		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
 	}
@@ -91,7 +103,7 @@ func (ms MemStorage) UpdateMetric(m model.Metrics) error {
 	}
 }
 
-func (ms MemStorage) GetMetric(mType, mName string) (model.Metrics, error) {
+func (ms *MemStorage) GetMetric(mType, mName string) (model.Metrics, error) {
 	if v, ok := ms.metrics[mName]; !ok || v.MType != mType {
 		return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
 	} else {
@@ -99,6 +111,45 @@ func (ms MemStorage) GetMetric(mType, mName string) (model.Metrics, error) {
 	}
 }
 
-func (ms MemStorage) GetAll() map[string]model.Metrics {
+func (ms *MemStorage) GetAll() map[string]model.Metrics {
 	return ms.metrics
+}
+
+func (fs *FileStorage) UpdateMetric(m model.Metrics) error {
+	if err := fs.MemStorage.UpdateMetric(m); err != nil {
+		return err
+	}
+	return storeMetrics(fs.MemStorage.GetAll(), fs.file)
+}
+
+func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
+	metricSlice := make([]model.Metrics, 0, len(metrics))
+	for _, m := range metrics {
+		metricSlice = append(metricSlice, m)
+	}
+
+	if err := file.Truncate(0); err != nil {
+		return fmt.Errorf("failed to truncate the file before storing: %w", err)
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to seek to the beginning of the file before storing: %w", err)
+	}
+
+	writer := bufio.NewWriter(file)
+	data, err := json.Marshal(metricSlice)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metrics before storing: %w", err)
+	}
+	if _, err := writer.Write(data); err != nil {
+		return fmt.Errorf("failed to write metrics to the file: %w", err)
+	}
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush to the file remaining metrics: %w", err)
+	}
+
+	return nil
+}
+
+func (fs *FileStorage) Close() error {
+	return fs.file.Close()
 }

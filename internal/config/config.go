@@ -15,7 +15,7 @@ const (
 	defaultPollInterval    = 2
 	defaultStoreInterval   = 300
 	defaultFileStoragePath = "/tmp/metrics.json"
-	defaultRestore         = true
+	defaultRestore         = false
 )
 
 type AgentConfig struct {
