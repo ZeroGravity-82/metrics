@@ -1,119 +1,158 @@
 package service
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
-	"strconv"
+	"io"
+	"os"
 
+	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 )
 
 var ErrMetricNotFound = errors.New("metric not found")
 var ErrInvalidMetricValue = errors.New("invalid metric value")
+var ErrInvalidMetricType = errors.New("invalid metric type")
 var ErrUnsupportedMetricType = errors.New("unsupported metric type")
 
 type MemStorage struct {
-	counters map[string]model.CounterMetric
-	gauges   map[string]model.GaugeMetric
+	metrics map[string]model.Metrics
 }
 
-func NewMemStorage() MemStorage {
-	return MemStorage{
-		counters: make(map[string]model.CounterMetric),
-		gauges:   make(map[string]model.GaugeMetric),
+func NewMemStorage() *MemStorage {
+	return &MemStorage{
+		metrics: make(map[string]model.Metrics),
 	}
 }
 
-func (ms MemStorage) UpdateMetric(mType, mName, mValue string) error {
-	if len(mName) == 0 {
+type FileStorage struct {
+	MemStorage
+	file *os.File
+}
+
+func NewFileStorage(cfg config.ServerConfig) (*FileStorage, error) {
+	ms := MemStorage{
+		metrics: make(map[string]model.Metrics),
+	}
+	file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the file with metrics: %w", err)
+	}
+	fs := FileStorage{
+		MemStorage: ms,
+		file:       file,
+	}
+	if cfg.Restore {
+		if err := restoreMetrics(ms, file); err != nil {
+			return nil, err
+		}
+	}
+	return &fs, nil
+}
+
+func restoreMetrics(ms MemStorage, file *os.File) error {
+	reader := bufio.NewReader(file)
+	data, err := io.ReadAll(reader)
+	if len(data) == 0 {
+		return nil // файл был только что создан пустым, не из чего восстанавливать метрики
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read metrics from the file: %w", err)
+	}
+	var metricSlice []model.Metrics
+	if err := json.Unmarshal(data, &metricSlice); err != nil {
+		return fmt.Errorf("failed to unmarshall metrics read from the file: %w", err)
+	}
+	for _, m := range metricSlice {
+		ms.metrics[m.ID] = m
+	}
+	return nil
+}
+
+func (ms *MemStorage) UpdateMetric(m model.Metrics) error {
+	if len(m.ID) == 0 {
 		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
 	}
+	if m.MType == model.Counter && m.Delta == nil ||
+		m.MType == model.Gauge && m.Value == nil {
+		return fmt.Errorf("%w", ErrInvalidMetricValue)
+	}
 
-	switch mType {
+	switch m.MType {
 	case model.Counter:
-		v, err := strconv.ParseInt(mValue, 10, 64)
-		if err != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidMetricValue, mValue)
-		}
-		m := model.CounterMetric{
-			Metric: model.Metric{
-				ID:    mName,
-				MType: mType,
-				Hash:  "",
-			},
-			Delta: v,
-		}
-		if _, ok := ms.counters[m.ID]; !ok {
-			ms.counters[m.ID] = m
+		if _, ok := ms.metrics[m.ID]; !ok {
+			ms.metrics[m.ID] = m
 		} else {
-			existedMetric := ms.counters[m.ID]
-			existedMetric.Delta += m.Delta
-			ms.counters[m.ID] = existedMetric
+			existedMetric := ms.metrics[m.ID]
+			if m.MType != existedMetric.MType {
+				return fmt.Errorf("%w: %s", ErrInvalidMetricType, m.MType)
+			}
+			*existedMetric.Delta += *m.Delta
+			ms.metrics[m.ID] = existedMetric
 		}
 		return nil
 	case model.Gauge:
-		v, err := strconv.ParseFloat(mValue, 64)
-		if err != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidMetricValue, mValue)
+		if existedMetric, ok := ms.metrics[m.ID]; ok {
+			if m.MType != existedMetric.MType {
+				return fmt.Errorf("%w: %s", ErrInvalidMetricType, m.MType)
+			}
 		}
-		metric := model.GaugeMetric{
-			Metric: model.Metric{
-				ID:    mName,
-				MType: mType,
-				Hash:  "",
-			},
-			Value: v,
-		}
-		ms.gauges[metric.ID] = metric
+		ms.metrics[m.ID] = m
 		return nil
 	default:
-		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, mType)
+		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, m.MType)
 	}
 }
 
-func (ms MemStorage) GetCounterMetric(ID string) (model.CounterMetric, error) {
-	if v, ok := ms.counters[ID]; !ok {
-		return model.CounterMetric{}, fmt.Errorf("%w: counter with ID %s", ErrMetricNotFound, ID)
+func (ms *MemStorage) GetMetric(mType, mName string) (model.Metrics, error) {
+	if v, ok := ms.metrics[mName]; !ok || v.MType != mType {
+		return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
 	} else {
 		return v, nil
 	}
 }
 
-func (ms MemStorage) GetGaugeMetric(ID string) (model.GaugeMetric, error) {
-	if v, ok := ms.gauges[ID]; !ok {
-		return model.GaugeMetric{}, fmt.Errorf("%w: gauge with ID %s", ErrMetricNotFound, ID)
-	} else {
-		return v, nil
-	}
+func (ms *MemStorage) GetAll() map[string]model.Metrics {
+	return ms.metrics
 }
 
-func (ms MemStorage) GetAll() ([]model.CounterMetric, []model.GaugeMetric) {
-	return getCounters(ms), getGauges(ms)
+func (fs *FileStorage) UpdateMetric(m model.Metrics) error {
+	if err := fs.MemStorage.UpdateMetric(m); err != nil {
+		return err
+	}
+	return storeMetrics(fs.MemStorage.GetAll(), fs.file)
 }
 
-func getCounters(ms MemStorage) []model.CounterMetric {
-	counterNames := make([]string, 0, len(ms.counters))
-	for n := range ms.counters {
-		counterNames = append(counterNames, n)
+func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
+	metricSlice := make([]model.Metrics, 0, len(metrics))
+	for _, m := range metrics {
+		metricSlice = append(metricSlice, m)
 	}
-	slices.Sort(counterNames)
-	counters := make([]model.CounterMetric, 0, len(ms.counters))
-	for _, n := range counterNames {
-		counters = append(counters, ms.counters[n])
+
+	if err := file.Truncate(0); err != nil {
+		return fmt.Errorf("failed to truncate the file before storing: %w", err)
 	}
-	return counters
+	if _, err := file.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to seek to the beginning of the file before storing: %w", err)
+	}
+
+	writer := bufio.NewWriter(file)
+	data, err := json.Marshal(metricSlice)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metrics before storing: %w", err)
+	}
+	if _, err := writer.Write(data); err != nil {
+		return fmt.Errorf("failed to write metrics to the file: %w", err)
+	}
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush to the file remaining metrics: %w", err)
+	}
+
+	return nil
 }
 
-func getGauges(ms MemStorage) []model.GaugeMetric {
-	gaugeNames := make([]string, 0, len(ms.gauges))
-	for n := range ms.gauges {
-		gaugeNames = append(gaugeNames, n)
-	}
-	slices.Sort(gaugeNames)
-	gauges := make([]model.GaugeMetric, 0, len(ms.gauges))
-	for _, n := range gaugeNames {
-		gauges = append(gauges, ms.gauges[n])
-	}
-	return gauges
+func (fs *FileStorage) Close() error {
+	return fs.file.Close()
 }
