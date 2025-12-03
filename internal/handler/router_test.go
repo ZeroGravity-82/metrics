@@ -8,9 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,10 +34,12 @@ func TestUpdateMetricHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
 	ms := service.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
 	tests := []struct {
@@ -180,10 +184,12 @@ func TestUpdateHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
 	ms := service.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
 	tests := []struct {
@@ -349,10 +355,12 @@ func TestGetMetricHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
 	ms := service.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
 	tests := []struct {
@@ -443,10 +451,12 @@ func TestGetHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
 	ms := service.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
 	tests := []struct {
@@ -566,10 +576,12 @@ func TestGetMetricListHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
 	ms := service.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
 	tests := []struct {
@@ -618,6 +630,66 @@ func TestGetMetricListHandler(t *testing.T) {
 				assert.Contains(t, bodyString, "PollCount: 777777777777777")
 				assert.Contains(t, bodyString, "RandomValue: 3.685246675e&#43;09")
 				assert.Contains(t, bodyString, "GCCPUFraction: 1.2345678912345e-07")
+			}
+		})
+	}
+}
+
+func TestPingHandler(t *testing.T) {
+	// Arrange
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	os.Args = []string{"server"}
+
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	require.NoError(t, err)
+	defer db.Close()
+
+	ms := service.NewMemStorage()
+	ts := httptest.NewServer(MetricRouter(ms, logger, db))
+	defer ts.Close()
+
+	tests := []struct {
+		name                 string
+		forceCloseConnection bool
+		wantStatusCode       int
+	}{
+		{
+			name:                 "successful ping",
+			forceCloseConnection: false,
+			wantStatusCode:       http.StatusOK,
+		},
+		{
+			name:                 "database connection failed",
+			forceCloseConnection: true,
+			wantStatusCode:       http.StatusInternalServerError,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			URL, err := url.JoinPath(ts.URL, "/ping")
+			require.NoError(t, err)
+			req, err := http.NewRequest(http.MethodGet, URL, http.NoBody)
+			require.NoError(t, err)
+			mock.ExpectPing()
+			if tt.forceCloseConnection {
+				_ = db.Close()
+			}
+
+			// Act
+			resp, err := ts.Client().Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			// Assert
+			bodyBytes, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatusCode, resp.StatusCode)
+			assert.Empty(t, bodyBytes)
+			if !tt.forceCloseConnection {
+				err = mock.ExpectationsWereMet()
+				assert.NoError(t, err)
 			}
 		})
 	}

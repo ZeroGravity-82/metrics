@@ -2,6 +2,8 @@ package handler
 
 import (
 	"compress/gzip"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,7 +28,7 @@ type Storage interface {
 	GetAll() map[string]model.Metrics
 }
 
-func MetricRouter(s Storage, logger zerolog.Logger) chi.Router {
+func MetricRouter(s Storage, logger zerolog.Logger, db *sql.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
@@ -44,6 +46,8 @@ func MetricRouter(s Storage, logger zerolog.Logger) chi.Router {
 	applicationJSONContentType := middleware.AllowContentType("application/json")
 	r.With(applicationJSONContentType).Post("/update", updateHandler(s, logger))
 	r.With(applicationJSONContentType).Post("/value", getHandler(s, logger))
+
+	r.Get("/ping", pingHandler(logger, db))
 	return r
 }
 
@@ -316,4 +320,17 @@ func logWriteResponseError(err error, logger zerolog.Logger) {
 
 func logError(err error, msg string, logger zerolog.Logger) {
 	logger.Error().Str("error", err.Error()).Msg(msg)
+}
+
+func pingHandler(logger zerolog.Logger, db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		if err := db.PingContext(ctx); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			logError(err, "Database connection error", logger)
+			return
+		}
+	}
 }

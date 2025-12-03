@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGetAgentConfig_Default проверяет поведение по умолчанию, когда ни флаги, ни переменные окружения агента не заданы
-func TestGetAgentConfig_Default(t *testing.T) {
+// TestCanGetAgentConfig_Default проверяет поведение по умолчанию, когда ни флаги, ни переменные окружения агента не
+// заданы
+func TestCanGetAgentConfig_Default(t *testing.T) {
 	// Arrange
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"agent"}
@@ -31,8 +32,8 @@ func TestGetAgentConfig_Default(t *testing.T) {
 	assert.Equal(t, defaultReportInterval, cfg.ReportInterval)
 }
 
-// TestGetAgentConfig_Flag проверяет парсинг параметров командной строки агента
-func TestGetAgentConfig_Flag(t *testing.T) {
+// TestCanGetAgentConfig_Flag проверяет парсинг параметров командной строки агента
+func TestCanGetAgentConfig_Flag(t *testing.T) {
 	// Arrange
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"agent", "-a=127.0.0.1:8081", "-r=5", "-p=1"}
@@ -53,8 +54,8 @@ func TestGetAgentConfig_Flag(t *testing.T) {
 	assert.Equal(t, 1, cfg.PollInterval)
 }
 
-// TestGetAgentConfig_Env проверяет парсинг переменных окружения агента
-func TestGetAgentConfig_Env(t *testing.T) {
+// TestCanGetAgentConfig_Env проверяет парсинг переменных окружения агента
+func TestCanGetAgentConfig_Env(t *testing.T) {
 	// Arrange
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"agent"}
@@ -75,8 +76,8 @@ func TestGetAgentConfig_Env(t *testing.T) {
 	assert.Equal(t, 1, cfg.PollInterval)
 }
 
-// TestGetAgentConfig_EnvPrecedence проверяет приоритет переменных окружения над параметрами командной строки агента
-func TestGetAgentConfig_EnvPrecedence(t *testing.T) {
+// TestCanGetAgentConfig_EnvPrecedence проверяет приоритет переменных окружения над параметрами командной строки агента
+func TestCanGetAgentConfig_EnvPrecedence(t *testing.T) {
 	// Arrange
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"agent", "-a=127.0.0.1:8081", "-r=5", "-p=1"}
