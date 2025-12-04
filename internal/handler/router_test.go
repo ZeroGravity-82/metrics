@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"flag"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +29,7 @@ func float64Pointer(v float64) *float64 {
 }
 
 func TestUpdateMetricHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
@@ -151,7 +151,6 @@ func TestUpdateMetricHandler(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 	}
-	// Arrange
 	var v1 int64 = 777
 	m1 := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v1}
 	_ = ms.UpdateMetric(m1)
@@ -161,8 +160,9 @@ func TestUpdateMetricHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			target := fmt.Sprintf("/update/%s/%s/%s", tt.mType, tt.mName, tt.mValue)
-			req, err := http.NewRequest(tt.method, ts.URL+target, http.NoBody)
+			URL, err := url.JoinPath(ts.URL, "/update", tt.mType, tt.mName, tt.mValue)
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, URL, http.NoBody)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 
@@ -180,6 +180,7 @@ func TestUpdateMetricHandler(t *testing.T) {
 }
 
 func TestUpdateHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
@@ -312,7 +313,6 @@ func TestUpdateHandler(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 	}
-	// Arrange
 	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
 	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
 	for _, tt := range tests {
@@ -320,7 +320,9 @@ func TestUpdateHandler(t *testing.T) {
 			// Arrange
 			buf, err := compressWithGzip(tt.body)
 			require.NoError(t, err)
-			req, err := http.NewRequest(tt.method, ts.URL+"/update", buf)
+			URL, err := url.JoinPath(ts.URL, "/update")
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, URL, buf)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 			req.Header.Set("Content-Encoding", "gzip")
@@ -351,6 +353,7 @@ func compressWithGzip(body string) (*bytes.Buffer, error) {
 }
 
 func TestGetMetricHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
@@ -420,14 +423,14 @@ func TestGetMetricHandler(t *testing.T) {
 			wantValue:      "12345",
 		},
 	}
-	// Arrange
 	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
 	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			target := fmt.Sprintf("/value/%s/%s", tt.mType, tt.mName)
-			req, err := http.NewRequest(tt.method, ts.URL+target, http.NoBody)
+			URL, err := url.JoinPath(ts.URL, "/value", tt.mType, tt.mName)
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, URL, http.NoBody)
 			require.NoError(t, err)
 
 			// Act
@@ -447,6 +450,7 @@ func TestGetMetricHandler(t *testing.T) {
 }
 
 func TestGetHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
@@ -541,7 +545,6 @@ func TestGetHandler(t *testing.T) {
 			wantContentType: "application/json",
 		},
 	}
-	// Arrange
 	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
 	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
 	for _, tt := range tests {
@@ -549,7 +552,9 @@ func TestGetHandler(t *testing.T) {
 			// Arrange
 			buf, err := compressWithGzip(tt.body)
 			require.NoError(t, err)
-			req, err := http.NewRequest(tt.method, ts.URL+"/value", buf)
+			URL, err := url.JoinPath(ts.URL, "/value")
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, URL, buf)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 			req.Header.Set("Content-Encoding", "gzip")
@@ -572,6 +577,7 @@ func TestGetHandler(t *testing.T) {
 }
 
 func TestGetMetricListHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
@@ -600,7 +606,6 @@ func TestGetMetricListHandler(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 	}
-	// Arrange
 	_ = ms.UpdateMetric(model.Metrics{ID: "Alloc", MType: model.Gauge, Value: float64Pointer(310552)})
 	_ = ms.UpdateMetric(model.Metrics{ID: "BuckHashSys", MType: model.Gauge, Value: float64Pointer(3342)})
 	_ = ms.UpdateMetric(model.Metrics{ID: "OtherSys", MType: model.Gauge, Value: float64Pointer(606658)})
