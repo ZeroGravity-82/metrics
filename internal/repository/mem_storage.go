@@ -1,7 +1,9 @@
 package repository
 
 import (
+	"context"
 	"fmt"
+
 	"zerogravity-82/metrics/internal/model"
 )
 
@@ -15,7 +17,7 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (ms *MemStorage) UpdateMetric(m model.Metrics) error {
+func (ms *MemStorage) UpdateMetric(_ context.Context, m model.Metrics) error {
 	if len(m.ID) == 0 {
 		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
 	}
@@ -50,7 +52,7 @@ func (ms *MemStorage) UpdateMetric(m model.Metrics) error {
 	}
 }
 
-func (ms *MemStorage) GetMetric(mType, mName string) (model.Metrics, error) {
+func (ms *MemStorage) GetMetric(_ context.Context, mType, mName string) (model.Metrics, error) {
 	if v, ok := ms.metrics[mName]; !ok || v.MType != mType {
 		return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
 	} else {
@@ -58,6 +60,6 @@ func (ms *MemStorage) GetMetric(mType, mName string) (model.Metrics, error) {
 	}
 }
 
-func (ms *MemStorage) GetAll() map[string]model.Metrics {
-	return ms.metrics
+func (ms *MemStorage) GetAll(_ context.Context) (map[string]model.Metrics, error) {
+	return ms.metrics, nil
 }

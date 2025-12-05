@@ -2,6 +2,7 @@ package repository
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,11 +56,15 @@ func restoreMetrics(ms MemStorage, file *os.File) error {
 	return nil
 }
 
-func (fs *FileStorage) UpdateMetric(m model.Metrics) error {
-	if err := fs.MemStorage.UpdateMetric(m); err != nil {
+func (fs *FileStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
+	if err := fs.MemStorage.UpdateMetric(ctx, m); err != nil {
 		return err
 	}
-	return storeMetrics(fs.MemStorage.GetAll(), fs.file)
+	metrics, err := fs.MemStorage.GetAll(ctx)
+	if err != nil {
+		return err
+	}
+	return storeMetrics(metrics, fs.file)
 }
 
 func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {

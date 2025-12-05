@@ -23,9 +23,9 @@ import (
 )
 
 type Storage interface {
-	UpdateMetric(model.Metrics) error
-	GetMetric(mType, mName string) (model.Metrics, error)
-	GetAll() map[string]model.Metrics
+	UpdateMetric(ctx context.Context, m model.Metrics) error
+	GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error)
+	GetAll(ctx context.Context) (map[string]model.Metrics, error)
 }
 
 func MetricRouter(s Storage, logger zerolog.Logger, db *sql.DB) chi.Router {
@@ -127,7 +127,7 @@ func updateMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			return
 		}
 
-		err = s.UpdateMetric(m)
+		err = s.UpdateMetric(r.Context(), m)
 		if err != nil {
 			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
@@ -176,7 +176,7 @@ func updateHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			http.Error(w, fmt.Sprintf("cannot decode request JSON body: %s", err.Error()), http.StatusBadRequest)
 			return
 		}
-		err := s.UpdateMetric(metric)
+		err := s.UpdateMetric(r.Context(), metric)
 		if err != nil {
 			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
@@ -201,7 +201,7 @@ func getMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 
 		switch mType {
 		case model.Counter:
-			metric, err := s.GetMetric(mType, mName)
+			metric, err := s.GetMetric(r.Context(), mType, mName)
 			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
@@ -211,7 +211,7 @@ func getMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 				logWriteResponseError(err, logger)
 			}
 		case model.Gauge:
-			metric, err := s.GetMetric(mType, mName)
+			metric, err := s.GetMetric(r.Context(), mType, mName)
 			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
@@ -240,7 +240,7 @@ func getHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			return
 		}
 
-		metric, err := s.GetMetric(metric.MType, metric.ID)
+		metric, err := s.GetMetric(r.Context(), metric.MType, metric.ID)
 		if errors.Is(err, repository.ErrMetricNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
@@ -259,7 +259,11 @@ func getMetricListHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			Counters []model.Metrics
 			Gauges   []model.Metrics
 		}
-		metrics := s.GetAll()
+		metrics, err := s.GetAll(r.Context())
+		if err != nil {
+			logError(err, "Get metric list error", logger)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		}
 		metricNames := make([]string, 0, len(metrics))
 		for n := range metrics {
 			metricNames = append(metricNames, n)
@@ -328,8 +332,8 @@ func pingHandler(logger zerolog.Logger, db *sql.DB) http.HandlerFunc {
 		defer cancel()
 
 		if err := db.PingContext(ctx); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
 			logError(err, "Database connection error", logger)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	}

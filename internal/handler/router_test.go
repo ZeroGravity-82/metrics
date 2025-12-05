@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"flag"
 	"io"
 	"net/http"
@@ -151,12 +152,13 @@ func TestUpdateMetricHandler(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 	}
+	ctx := context.Background()
 	var v1 int64 = 777
 	m1 := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v1}
-	_ = ms.UpdateMetric(m1)
+	_ = ms.UpdateMetric(ctx, m1)
 	var v2 float64 = 12345
 	m2 := model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &v2}
-	_ = ms.UpdateMetric(m2)
+	_ = ms.UpdateMetric(ctx, m2)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -313,8 +315,9 @@ func TestUpdateHandler(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 	}
-	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	ctx := context.Background()
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -423,8 +426,9 @@ func TestGetMetricHandler(t *testing.T) {
 			wantValue:      "12345",
 		},
 	}
-	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	ctx := context.Background()
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -545,8 +549,9 @@ func TestGetHandler(t *testing.T) {
 			wantContentType: "application/json",
 		},
 	}
-	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	ctx := context.Background()
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -606,12 +611,13 @@ func TestGetMetricListHandler(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 	}
-	_ = ms.UpdateMetric(model.Metrics{ID: "Alloc", MType: model.Gauge, Value: float64Pointer(310552)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "BuckHashSys", MType: model.Gauge, Value: float64Pointer(3342)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "OtherSys", MType: model.Gauge, Value: float64Pointer(606658)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777777777777777)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(3685246675)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "GCCPUFraction", MType: model.Gauge, Value: float64Pointer(0.00000012345678912345)})
+	ctx := context.Background()
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "Alloc", MType: model.Gauge, Value: float64Pointer(310552)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "BuckHashSys", MType: model.Gauge, Value: float64Pointer(3342)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "OtherSys", MType: model.Gauge, Value: float64Pointer(606658)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777777777777777)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(3685246675)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "GCCPUFraction", MType: model.Gauge, Value: float64Pointer(0.00000012345678912345)})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
