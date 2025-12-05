@@ -12,13 +12,13 @@ import (
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/handler"
-	"zerogravity-82/metrics/internal/service"
+	"zerogravity-82/metrics/internal/repository"
 )
 
 type Application struct {
 	Logger zerolog.Logger
 	Cfg    config.ServerConfig
-	FS     *service.FileStorage
+	FS     *repository.FileStorage
 	DB     *sql.DB
 }
 
@@ -30,7 +30,7 @@ func NewApplication() *Application {
 		logger.Fatal().Str("error", err.Error()).Msg("Config error")
 	}
 
-	fs, err := service.NewFileStorage(cfg)
+	fs, err := repository.NewFileStorage(cfg)
 	if err != nil {
 		logger.Fatal().Str("error", err.Error()).Msg("Storage error")
 	}

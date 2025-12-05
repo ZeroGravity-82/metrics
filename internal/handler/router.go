@@ -19,7 +19,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"zerogravity-82/metrics/internal/model"
-	"zerogravity-82/metrics/internal/service"
+	"zerogravity-82/metrics/internal/repository"
 )
 
 type Storage interface {
@@ -129,11 +129,11 @@ func updateMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 
 		err = s.UpdateMetric(m)
 		if err != nil {
-			if errors.Is(err, service.ErrMetricNotFound) {
+			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if errors.Is(err, service.ErrInvalidMetricType) {
+			if errors.Is(err, repository.ErrInvalidMetricType) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -149,7 +149,7 @@ func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
 	case model.Counter:
 		v, err := strconv.ParseInt(mValue, 10, 64)
 		if err != nil {
-			return model.Metrics{}, fmt.Errorf("%w: %s", service.ErrInvalidMetricValue, mValue)
+			return model.Metrics{}, fmt.Errorf("%w: %s", repository.ErrInvalidMetricValue, mValue)
 		}
 		m.ID = mName
 		m.MType = mType
@@ -157,13 +157,13 @@ func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
 	case model.Gauge:
 		v, err := strconv.ParseFloat(mValue, 64)
 		if err != nil {
-			return model.Metrics{}, fmt.Errorf("%w: %s", service.ErrInvalidMetricValue, mValue)
+			return model.Metrics{}, fmt.Errorf("%w: %s", repository.ErrInvalidMetricValue, mValue)
 		}
 		m.ID = mName
 		m.MType = mType
 		m.Value = &v
 	default:
-		return model.Metrics{}, fmt.Errorf("%w: %s", service.ErrUnsupportedMetricType, mType)
+		return model.Metrics{}, fmt.Errorf("%w: %s", repository.ErrUnsupportedMetricType, mType)
 	}
 	return m, nil
 }
@@ -178,13 +178,13 @@ func updateHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 		}
 		err := s.UpdateMetric(metric)
 		if err != nil {
-			if errors.Is(err, service.ErrMetricNotFound) {
+			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if errors.Is(err, service.ErrUnsupportedMetricType) ||
-				errors.Is(err, service.ErrInvalidMetricType) ||
-				errors.Is(err, service.ErrInvalidMetricValue) {
+			if errors.Is(err, repository.ErrUnsupportedMetricType) ||
+				errors.Is(err, repository.ErrInvalidMetricType) ||
+				errors.Is(err, repository.ErrInvalidMetricValue) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -202,7 +202,7 @@ func getMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 		switch mType {
 		case model.Counter:
 			metric, err := s.GetMetric(mType, mName)
-			if errors.Is(err, service.ErrMetricNotFound) {
+			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -212,7 +212,7 @@ func getMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			}
 		case model.Gauge:
 			metric, err := s.GetMetric(mType, mName)
-			if errors.Is(err, service.ErrMetricNotFound) {
+			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -241,7 +241,7 @@ func getHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 		}
 
 		metric, err := s.GetMetric(metric.MType, metric.ID)
-		if errors.Is(err, service.ErrMetricNotFound) {
+		if errors.Is(err, repository.ErrMetricNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}

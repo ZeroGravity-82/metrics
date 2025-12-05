@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"zerogravity-82/metrics/internal/model"
-	"zerogravity-82/metrics/internal/service"
+	"zerogravity-82/metrics/internal/repository"
 )
 
 func int64Pointer(v int64) *int64 {
@@ -38,7 +38,7 @@ func TestUpdateMetricHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
@@ -189,7 +189,7 @@ func TestUpdateHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
@@ -362,7 +362,7 @@ func TestGetMetricHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
@@ -459,7 +459,7 @@ func TestGetHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
@@ -586,7 +586,7 @@ func TestGetMetricListHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
@@ -650,7 +650,7 @@ func TestPingHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger, db))
 	defer ts.Close()
 
