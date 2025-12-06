@@ -29,14 +29,30 @@ func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
 		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, m.MType)
 	}
 
+	var delta sql.NullInt64
+	if m.Delta != nil {
+		delta.Int64 = *m.Delta
+		delta.Valid = true
+	} else {
+		delta.Valid = false
+	}
+
+	var value sql.NullFloat64
+	if m.Value != nil {
+		value.Float64 = *m.Value
+		value.Valid = true
+	} else {
+		value.Valid = false
+	}
+
 	_, err := ds.db.ExecContext(
 		ctx,
 		"INSERT INTO metric (id, type, delta, value) VALUES ($1, $2, $3, $4) "+
-			"ON CONFLICT (id) DO UPDATE SET delta = delta + $3, value = $4",
+			"ON CONFLICT (id) DO UPDATE SET delta = metric.delta + EXCLUDED.delta, value = EXCLUDED.value",
 		m.ID,
 		m.MType,
-		*m.Delta,
-		*m.Value,
+		delta,
+		value,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update metric: type %s, ID %s: %w", m.MType, m.ID, err)
