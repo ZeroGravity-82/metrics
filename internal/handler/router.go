@@ -139,6 +139,7 @@ func updateMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			}
 			logError(err, "Update metric error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	}
 }
@@ -190,6 +191,7 @@ func updateHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			}
 			logError(err, "Update metric error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	}
 }
@@ -263,6 +265,7 @@ func getMetricListHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 		if err != nil {
 			logError(err, "Get metric list error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 		metricNames := make([]string, 0, len(metrics))
 		for n := range metrics {
