@@ -1,11 +1,6 @@
-CREATE TABLE counter (
+CREATE TABLE metric (
     id VARCHAR(255) PRIMARY KEY,
-    delta BIGINT
-);
-ALTER TABLE counter ALTER COLUMN delta SET NOT NULL;
-
-CREATE TABLE gauge (
-    id VARCHAR(255) PRIMARY KEY,
+    type VARCHAR(255),
+    delta BIGINT,
     value DOUBLE PRECISION
 );
-ALTER TABLE gauge ALTER COLUMN value SET NOT NULL;

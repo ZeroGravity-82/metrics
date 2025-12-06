@@ -21,8 +21,8 @@ func (ms *MemStorage) UpdateMetric(_ context.Context, m model.Metrics) error {
 	if len(m.ID) == 0 {
 		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
 	}
-	if m.MType == model.Counter && m.Delta == nil ||
-		m.MType == model.Gauge && m.Value == nil {
+	if m.MType == model.Counter && (m.Delta == nil || m.Value != nil) ||
+		m.MType == model.Gauge && (m.Value == nil || m.Delta != nil) {
 		return fmt.Errorf("%w", ErrInvalidMetricValue)
 	}
 
