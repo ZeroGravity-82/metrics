@@ -63,3 +63,11 @@ func (ms *MemStorage) GetMetric(_ context.Context, mType, mName string) (model.M
 func (ms *MemStorage) GetAll(_ context.Context) (map[string]model.Metrics, error) {
 	return ms.metrics, nil
 }
+
+func (ms *MemStorage) Ping(_ context.Context) error {
+	return nil
+}
+
+func (ms *MemStorage) Close() error {
+	return nil
+}

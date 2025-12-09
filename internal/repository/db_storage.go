@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"zerogravity-82/metrics/internal/model"
 )
@@ -70,16 +71,24 @@ func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.
 	)
 	var (
 		m     model.Metrics
-		delta int64
-		value float64
+		delta sql.NullInt64
+		value sql.NullFloat64
 	)
 	if err := row.Scan(&m.ID, &m.MType, &delta, &value); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
 		}
 	}
-	m.Delta = &delta
-	m.Value = &value
+	if delta.Valid == true {
+		m.Delta = &delta.Int64
+	} else {
+		m.Delta = nil
+	}
+	if value.Valid == true {
+		m.Value = &value.Float64
+	} else {
+		m.Value = nil
+	}
 	return m, nil
 }
 
@@ -92,20 +101,42 @@ func (ds *DBStorage) GetAll(ctx context.Context) (map[string]model.Metrics, erro
 
 	var (
 		m     model.Metrics
-		delta int64
-		value float64
+		delta sql.NullInt64
+		value sql.NullFloat64
 	)
 	metrics := make(map[string]model.Metrics)
 	for rows.Next() {
 		if err = rows.Scan(&m.ID, &m.MType, &delta, &value); err != nil {
 			return nil, fmt.Errorf("failed to scan the metric from DB: %w", err)
 		}
-		m.Delta = &delta
-		m.Value = &value
+		if delta.Valid == true {
+			m.Delta = &delta.Int64
+		} else {
+			m.Delta = nil
+		}
+		if value.Valid == true {
+			m.Value = &value.Float64
+		} else {
+			m.Value = nil
+		}
 		metrics[m.ID] = m
 	}
 	if rows.Err() != nil {
 		return nil, fmt.Errorf("failed to iterate over metrics queried from DB: %w", err)
 	}
 	return metrics, nil
+}
+
+func (ds *DBStorage) Ping(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if err := ds.db.PingContext(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (ds *DBStorage) Close() error {
+	return ds.db.Close()
 }

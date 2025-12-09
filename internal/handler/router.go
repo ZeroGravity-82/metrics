@@ -3,7 +3,6 @@ package handler
 import (
 	"compress/gzip"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,9 +25,11 @@ type Storage interface {
 	UpdateMetric(ctx context.Context, m model.Metrics) error
 	GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error)
 	GetAll(ctx context.Context) (map[string]model.Metrics, error)
+	Ping(ctx context.Context) error
+	Close() error
 }
 
-func MetricRouter(s Storage, logger zerolog.Logger, db *sql.DB) chi.Router {
+func MetricRouter(s Storage, logger zerolog.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
@@ -47,7 +48,7 @@ func MetricRouter(s Storage, logger zerolog.Logger, db *sql.DB) chi.Router {
 	r.With(applicationJSONContentType).Post("/update", updateHandler(s, logger))
 	r.With(applicationJSONContentType).Post("/value", getHandler(s, logger))
 
-	r.Get("/ping", pingHandler(logger, db))
+	r.Get("/ping", pingHandler(s, logger))
 	return r
 }
 
@@ -329,13 +330,13 @@ func logError(err error, msg string, logger zerolog.Logger) {
 	logger.Error().Str("error", err.Error()).Msg(msg)
 }
 
-func pingHandler(logger zerolog.Logger, db *sql.DB) http.HandlerFunc {
+func pingHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
-		if err := db.PingContext(ctx); err != nil {
-			logError(err, "Database connection error", logger)
+		if err := s.Ping(ctx); err != nil {
+			logError(err, "Storage connection error", logger)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}

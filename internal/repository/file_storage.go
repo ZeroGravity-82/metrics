@@ -95,6 +95,10 @@ func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
 	return nil
 }
 
+func (fs *FileStorage) Ping(_ context.Context) error {
+	return nil
+}
+
 func (fs *FileStorage) Close() error {
 	return fs.file.Close()
 }

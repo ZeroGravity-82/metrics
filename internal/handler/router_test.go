@@ -35,12 +35,8 @@ func TestUpdateMetricHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	db, _, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close()
-
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger, db))
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -187,12 +183,8 @@ func TestUpdateHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	db, _, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close()
-
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger, db))
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -361,12 +353,8 @@ func TestGetMetricHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	db, _, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close()
-
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger, db))
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -459,12 +447,8 @@ func TestGetHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	db, _, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close()
-
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger, db))
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -587,12 +571,8 @@ func TestGetMetricListHandler(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	db, _, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close()
-
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger, db))
+	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -656,8 +636,8 @@ func TestPingHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger, db))
+	ds := repository.NewDbStorage(db)
+	ts := httptest.NewServer(MetricRouter(ds, logger))
 	defer ts.Close()
 
 	tests := []struct {

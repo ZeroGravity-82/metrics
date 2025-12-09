@@ -10,7 +10,7 @@ import (
 )
 
 // TestCanGetServerConfig_Default проверяет поведение по умолчанию, когда ни флаги, ни переменные окружения сервера не
-// заданы, кроме строки подключения к БД
+// заданы
 func TestCanGetServerConfig_Default(t *testing.T) {
 	// Arrange
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
@@ -23,7 +23,7 @@ func TestCanGetServerConfig_Default(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("RESTORE")
 	require.NoError(t, err)
-	err = os.Setenv("DATABASE_DSN", "host=host port=port user=myuser password=xxxx dbname=mydb sslmode=disable")
+	err = os.Unsetenv("DATABASE_DSN")
 
 	// Act
 	cfg, err := GetServerConfig()
@@ -32,32 +32,9 @@ func TestCanGetServerConfig_Default(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, defaultServerAddr, cfg.ServerAddr)
 	assert.Equal(t, defaultStoreInterval, cfg.StoreInterval)
-	assert.Equal(t, defaultFileStoragePath, cfg.FileStoragePath)
+	assert.Equal(t, "", cfg.FileStoragePath)
 	assert.Equal(t, defaultRestore, cfg.Restore)
-	assert.Equal(t, "host=host port=port user=myuser password=xxxx dbname=mydb sslmode=disable", cfg.DatabaseDSN)
-}
-
-// TestFailGetServerConfig_NoDatabaseDSN проверяет ошибку при отсутствии строки подключения к БД
-func TestFailGetServerConfig_NoDatabaseDSN(t *testing.T) {
-	// Arrange
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-	err := os.Unsetenv("ADDRESS")
-	require.NoError(t, err)
-	err = os.Unsetenv("STORE_INTERVAL")
-	require.NoError(t, err)
-	err = os.Unsetenv("FILE_STORAGE_PATH")
-	require.NoError(t, err)
-	err = os.Unsetenv("RESTORE")
-	require.NoError(t, err)
-	err = os.Unsetenv("DATABASE_DSN")
-	require.NoError(t, err)
-
-	// Act
-	_, err = GetServerConfig()
-
-	// Assert
-	require.Error(t, err)
+	assert.Equal(t, "", cfg.DatabaseDSN)
 }
 
 // TestCanGetServerConfig_Flag проверяет парсинг параметров командной строки сервера

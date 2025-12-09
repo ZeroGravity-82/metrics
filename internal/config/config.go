@@ -10,12 +10,11 @@ import (
 )
 
 const (
-	defaultServerAddr      = "localhost:8080"
-	defaultReportInterval  = 10
-	defaultPollInterval    = 2
-	defaultStoreInterval   = 300
-	defaultFileStoragePath = "/tmp/metrics.json"
-	defaultRestore         = false
+	defaultServerAddr     = "localhost:8080"
+	defaultReportInterval = 10
+	defaultPollInterval   = 2
+	defaultStoreInterval  = 300
+	defaultRestore        = false
 )
 
 type AgentConfig struct {
@@ -35,7 +34,7 @@ func GetServerConfig() (ServerConfig, error) {
 	var serverAddrFlag string
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
 	storeIntervalFlag := flag.Int("i", defaultStoreInterval, "интервал сохранения метрик на диск")
-	fileStoragePathFlag := flag.String("f", defaultFileStoragePath, "путь до файла с метриками")
+	fileStoragePathFlag := flag.String("f", "", "путь до файла с метриками")
 	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
 	databaseDSNFlag := flag.String("d", "", "строка подключения к БД")
 	flag.Parse()
@@ -101,9 +100,6 @@ func getRestore(restoreFlag *bool) (bool, error) {
 
 func getDatabaseDSN(databaseDSNFlag *string) (string, error) {
 	databaseDSNEnvStr, ok := os.LookupEnv("DATABASE_DSN")
-	if !ok && len(*databaseDSNFlag) == 0 {
-		return "", errors.New("database DSN was not provided")
-	}
 	if !ok {
 		return *databaseDSNFlag, nil
 	}

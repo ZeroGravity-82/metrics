@@ -3,7 +3,6 @@ package application
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 
@@ -16,10 +15,9 @@ import (
 )
 
 type Application struct {
-	Logger zerolog.Logger
-	Cfg    config.ServerConfig
-	FS     *repository.FileStorage
-	DB     *sql.DB
+	Logger  zerolog.Logger
+	Cfg     config.ServerConfig
+	Storage handler.Storage
 }
 
 func NewApplication() *Application {
@@ -30,38 +28,38 @@ func NewApplication() *Application {
 		logger.Fatal().Str("error", err.Error()).Msg("Config error")
 	}
 
-	fs, err := repository.NewFileStorage(cfg)
-	if err != nil {
-		logger.Fatal().Str("error", err.Error()).Msg("Storage error")
+	var storage handler.Storage
+	if cfg.DatabaseDSN != "" {
+		db, err := sql.Open("pgx", cfg.DatabaseDSN)
+		if err != nil {
+			logger.Fatal().Str("error", err.Error()).Msg("Database error")
+		}
+		storage = repository.NewDbStorage(db)
+	} else if cfg.FileStoragePath != "" {
+		storage, err = repository.NewFileStorage(cfg)
+		if err != nil {
+			logger.Fatal().Str("error", err.Error()).Msg("Storage error")
+		}
+	} else {
+		storage = repository.NewMemStorage()
 	}
-
-	db, err := sql.Open("pgx", cfg.DatabaseDSN)
-	fmt.Println(cfg.DatabaseDSN)
-	if err != nil {
-		logger.Fatal().Str("error", err.Error()).Msg("Database error")
-	}
-
 	return &Application{
-		Logger: logger,
-		Cfg:    cfg,
-		FS:     fs,
-		DB:     db,
+		Logger:  logger,
+		Cfg:     cfg,
+		Storage: storage,
 	}
 }
 
 func (app *Application) Run() {
 	app.Logger.Info().Str("address", app.Cfg.ServerAddr).Msg("Server started")
-	err := http.ListenAndServe(app.Cfg.ServerAddr, handler.MetricRouter(app.FS, app.Logger, app.DB))
+	err := http.ListenAndServe(app.Cfg.ServerAddr, handler.MetricRouter(app.Storage, app.Logger))
 	if !errors.Is(err, http.ErrServerClosed) {
 		app.Logger.Fatal().Msg(err.Error())
 	}
 }
 
 func (app *Application) Close() {
-	if err := app.DB.Close(); err != nil {
-		app.Logger.Error().Msg(err.Error())
-	}
-	if err := app.FS.Close(); err != nil {
+	if err := app.Storage.Close(); err != nil {
 		app.Logger.Error().Msg(err.Error())
 	}
 }
