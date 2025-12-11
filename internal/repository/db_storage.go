@@ -5,29 +5,30 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
+
+	"github.com/jmoiron/sqlx"
 
 	"zerogravity-82/metrics/internal/model"
 )
 
 type DBStorage struct {
-	db *sql.DB
+	db *sqlx.DB
 }
 
-func NewDbStorage(db *sql.DB) *DBStorage {
+type metric struct {
+	id    string
+	mType string `db:"type"`
+	delta sql.NullInt64
+	value sql.NullFloat64
+}
+
+func NewDbStorage(db *sqlx.DB) *DBStorage {
 	return &DBStorage{db: db}
 }
 
 func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
-	if len(m.ID) == 0 {
-		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
-	}
-	if m.MType == model.Counter && (m.Delta == nil || m.Value != nil) ||
-		m.MType == model.Gauge && (m.Value == nil || m.Delta != nil) {
-		return fmt.Errorf("%w", ErrInvalidMetricValue)
-	}
-	if m.MType != model.Counter && m.MType != model.Gauge {
-		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, m.MType)
+	if err := validateMetric(m); err != nil {
+		return err
 	}
 
 	var delta sql.NullInt64
@@ -61,80 +62,67 @@ func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
 	return nil
 }
 
+func validateMetric(m model.Metrics) error {
+	if len(m.ID) == 0 {
+		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
+	}
+	if m.MType == model.Counter && (m.Delta == nil || m.Value != nil) ||
+		m.MType == model.Gauge && (m.Value == nil || m.Delta != nil) {
+		return fmt.Errorf("%w", ErrInvalidMetricValue)
+	}
+	if m.MType != model.Counter && m.MType != model.Gauge {
+		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, m.MType)
+	}
+	return nil
+}
+
 func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error) {
 	if mType != model.Counter && mType != model.Gauge {
 		return model.Metrics{}, fmt.Errorf("%w: %s", ErrUnsupportedMetricType, mType)
 	}
-	row := ds.db.QueryRowContext(
+	var m metric
+	err := ds.db.GetContext(
 		ctx,
-		"SELECT id, type, delta, value FROM metric WHERE id = $1 AND type = $2", mName, mType,
+		&m,
+		"SELECT id, type, delta, value FROM metric WHERE id = $1 AND type = $2",
+		mName,
+		mType,
 	)
-	var (
-		m     model.Metrics
-		delta sql.NullInt64
-		value sql.NullFloat64
-	)
-	if err := row.Scan(&m.ID, &m.MType, &delta, &value); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
-		}
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
 	}
-	if delta.Valid == true {
-		m.Delta = &delta.Int64
-	} else {
-		m.Delta = nil
+	if err != nil {
+		return model.Metrics{}, err
 	}
-	if value.Valid == true {
-		m.Value = &value.Float64
-	} else {
-		m.Value = nil
-	}
-	return m, nil
+
+	return model.Metrics{
+		ID:    m.id,
+		MType: m.mType,
+		Delta: &m.delta.Int64,
+		Value: &m.value.Float64,
+	}, nil
 }
 
 func (ds *DBStorage) GetAll(ctx context.Context) (map[string]model.Metrics, error) {
-	rows, err := ds.db.QueryContext(ctx, "SELECT id, type, delta, value FROM metric")
-	if err != nil {
-		return nil, fmt.Errorf("failed to query all metrics from DB: %w", err)
-	}
-	defer rows.Close()
+	var metrics = make([]metric, 0)
 
-	var (
-		m     model.Metrics
-		delta sql.NullInt64
-		value sql.NullFloat64
-	)
-	metrics := make(map[string]model.Metrics)
-	for rows.Next() {
-		if err = rows.Scan(&m.ID, &m.MType, &delta, &value); err != nil {
-			return nil, fmt.Errorf("failed to scan the metric from DB: %w", err)
-		}
-		if delta.Valid == true {
-			m.Delta = &delta.Int64
-		} else {
-			m.Delta = nil
-		}
-		if value.Valid == true {
-			m.Value = &value.Float64
-		} else {
-			m.Value = nil
-		}
-		metrics[m.ID] = m
+	if err := ds.db.SelectContext(ctx, &metrics, "SELECT id, type, delta, value FROM metric"); err != nil {
+		return nil, fmt.Errorf("failed query all metrics from DB: %w", err)
 	}
-	if rows.Err() != nil {
-		return nil, fmt.Errorf("failed to iterate over metrics queried from DB: %w", err)
+	metricsMap := make(map[string]model.Metrics, len(metrics))
+	for _, m := range metrics {
+		metricsMap[m.id] = model.Metrics{
+			ID:    m.id,
+			MType: m.mType,
+			Delta: &m.delta.Int64,
+			Value: &m.value.Float64,
+		}
 	}
-	return metrics, nil
+	return metricsMap, nil
 }
 
 func (ds *DBStorage) Ping(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	if err := ds.db.PingContext(ctx); err != nil {
-		return err
-	}
-	return nil
+	return ds.db.PingContext(ctx)
 }
 
 func (ds *DBStorage) Close() error {

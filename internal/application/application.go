@@ -1,12 +1,12 @@
 package application
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
 	"os"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
 
 	"zerogravity-82/metrics/internal/config"
@@ -30,7 +30,7 @@ func NewApplication() *Application {
 
 	var storage handler.Storage
 	if cfg.DatabaseDSN != "" {
-		db, err := sql.Open("pgx", cfg.DatabaseDSN)
+		db, err := sqlx.Connect("pgx", cfg.DatabaseDSN)
 		if err != nil {
 			logger.Fatal().Str("error", err.Error()).Msg("Database error")
 		}

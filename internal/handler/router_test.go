@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -636,7 +637,8 @@ func TestPingHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ds := repository.NewDbStorage(db)
+	sqlxDb := sqlx.NewDb(db, "sqlmock")
+	ds := repository.NewDbStorage(sqlxDb)
 	ts := httptest.NewServer(MetricRouter(ds, logger))
 	defer ts.Close()
 
