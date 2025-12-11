@@ -95,6 +95,17 @@ func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
 	return nil
 }
 
+func (fs *FileStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
+	if err := fs.MemStorage.UpdateMetrics(ctx, metrics); err != nil {
+		return err
+	}
+	metricsMap, err := fs.MemStorage.GetAll(ctx)
+	if err != nil {
+		return err
+	}
+	return storeMetrics(metricsMap, fs.file)
+}
+
 func (fs *FileStorage) Ping(_ context.Context) error {
 	return nil
 }

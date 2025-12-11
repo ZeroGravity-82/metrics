@@ -18,12 +18,8 @@ func NewMemStorage() *MemStorage {
 }
 
 func (ms *MemStorage) UpdateMetric(_ context.Context, m model.Metrics) error {
-	if len(m.ID) == 0 {
-		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
-	}
-	if m.MType == model.Counter && (m.Delta == nil || m.Value != nil) ||
-		m.MType == model.Gauge && (m.Value == nil || m.Delta != nil) {
-		return fmt.Errorf("%w", ErrInvalidMetricValue)
+	if err := validateMetric(m); err != nil {
+		return err
 	}
 
 	switch m.MType {
@@ -50,6 +46,22 @@ func (ms *MemStorage) UpdateMetric(_ context.Context, m model.Metrics) error {
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, m.MType)
 	}
+}
+
+func (ms *MemStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
+	for _, m := range metrics {
+		if err := validateMetric(m); err != nil {
+			return err
+		}
+	}
+	// обновляем только в случае, если все метрики валидные
+	for _, m := range metrics {
+		if err := ms.UpdateMetric(ctx, m); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (ms *MemStorage) GetMetric(_ context.Context, mType, mName string) (model.Metrics, error) {

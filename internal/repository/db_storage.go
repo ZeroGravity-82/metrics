@@ -11,11 +11,15 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
+const (
+	updateBatchSize = 10
+)
+
 type DBStorage struct {
 	db *sqlx.DB
 }
 
-type metric struct {
+type DBMetric struct {
 	id    string
 	mType string `db:"type"`
 	delta sql.NullInt64
@@ -62,25 +66,65 @@ func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
 	return nil
 }
 
-func validateMetric(m model.Metrics) error {
-	if len(m.ID) == 0 {
-		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
+func (ds *DBStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
+	tx, err := ds.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to update metrics: %w", err)
 	}
-	if m.MType == model.Counter && (m.Delta == nil || m.Value != nil) ||
-		m.MType == model.Gauge && (m.Value == nil || m.Delta != nil) {
-		return fmt.Errorf("%w", ErrInvalidMetricValue)
+	defer tx.Rollback()
+
+	DBMetrics := make([]DBMetric, 0, updateBatchSize)
+	for _, m := range metrics {
+		if err := validateMetric(m); err != nil {
+			return fmt.Errorf("failed to update metrics: %w", err)
+		}
+
+		var delta sql.NullInt64
+		if m.Delta != nil {
+			delta.Int64 = *m.Delta
+			delta.Valid = true
+		} else {
+			delta.Valid = false
+		}
+
+		var value sql.NullFloat64
+		if m.Value != nil {
+			value.Float64 = *m.Value
+			value.Valid = true
+		} else {
+			value.Valid = false
+		}
+
+		DBMetrics = append(DBMetrics, DBMetric{
+			id:    m.ID,
+			mType: m.MType,
+			delta: delta,
+			value: value,
+		})
+
+		if len(DBMetrics) >= updateBatchSize {
+			_, err = ds.db.NamedExec("INSERT INTO metric (id, type, delta, value) VALUES (:id, :type, :delta, :value) "+
+				"ON CONFLICT (id) DO UPDATE SET delta = metric.delta + EXCLUDED.delta, value = EXCLUDED.value", DBMetrics)
+			DBMetrics = DBMetrics[:0]
+			if err != nil {
+				return fmt.Errorf("failed to update metrics: %w", err)
+			}
+		}
 	}
-	if m.MType != model.Counter && m.MType != model.Gauge {
-		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, m.MType)
+	_, err = ds.db.NamedExec("INSERT INTO metric (id, type, delta, value) VALUES (:id, :type, :delta, :value) "+
+		"ON CONFLICT (id) DO UPDATE SET delta = metric.delta + EXCLUDED.delta, value = EXCLUDED.value", DBMetrics)
+	if err != nil {
+		return fmt.Errorf("failed to update metrics: %w", err)
 	}
-	return nil
+
+	return tx.Commit()
 }
 
 func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error) {
 	if mType != model.Counter && mType != model.Gauge {
 		return model.Metrics{}, fmt.Errorf("%w: %s", ErrUnsupportedMetricType, mType)
 	}
-	var m metric
+	var m DBMetric
 	err := ds.db.GetContext(
 		ctx,
 		&m,
@@ -104,7 +148,7 @@ func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.
 }
 
 func (ds *DBStorage) GetAll(ctx context.Context) (map[string]model.Metrics, error) {
-	var metrics = make([]metric, 0)
+	var metrics = make([]DBMetric, 0)
 
 	if err := ds.db.SelectContext(ctx, &metrics, "SELECT id, type, delta, value FROM metric"); err != nil {
 		return nil, fmt.Errorf("failed query all metrics from DB: %w", err)

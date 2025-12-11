@@ -23,6 +23,7 @@ import (
 
 type Storage interface {
 	UpdateMetric(ctx context.Context, m model.Metrics) error
+	UpdateMetrics(ctx context.Context, metrics []model.Metrics) error
 	GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error)
 	GetAll(ctx context.Context) (map[string]model.Metrics, error)
 	Ping(ctx context.Context) error
@@ -46,6 +47,7 @@ func MetricRouter(s Storage, logger zerolog.Logger) chi.Router {
 
 	applicationJSONContentType := middleware.AllowContentType("application/json")
 	r.With(applicationJSONContentType).Post("/update", updateHandler(s, logger))
+	r.With(applicationJSONContentType).Post("/updates", updatesHandler(s, logger))
 	r.With(applicationJSONContentType).Post("/value", getHandler(s, logger))
 
 	r.Get("/ping", pingHandler(s, logger))
@@ -191,6 +193,33 @@ func updateHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 				return
 			}
 			logError(err, "Update metric error", logger)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func updatesHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var metrics []model.Metrics
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&metrics); err != nil {
+			http.Error(w, fmt.Sprintf("cannot decode request JSON body: %s", err.Error()), http.StatusBadRequest)
+			return
+		}
+		err := s.UpdateMetrics(r.Context(), metrics)
+		if err != nil {
+			if errors.Is(err, repository.ErrMetricNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, repository.ErrUnsupportedMetricType) ||
+				errors.Is(err, repository.ErrInvalidMetricType) ||
+				errors.Is(err, repository.ErrInvalidMetricValue) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			logError(err, "Update metrics error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
