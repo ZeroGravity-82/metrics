@@ -57,45 +57,47 @@ func TestPollMetrics(t *testing.T) {
 func TestSendReport(t *testing.T) {
 	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	metrics := metrics{}
-	metrics.memStat = make(map[string]float64)
-	pollMetrics(&metrics)
+	sentMetrics := metrics{}
+	sentMetrics.memStat = make(map[string]float64)
+	pollMetrics(&sentMetrics)
 
-	var sentMetrics []string
+	var processedMetricIDs []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Assert
-		assert.Equal(t, "/update", r.URL.Path)
+		assert.Equal(t, "/updates", r.URL.Path)
 
 		zr, err := gzip.NewReader(r.Body)
 		require.NoError(t, err)
 
-		var m model.Metrics
+		var receivedMetrics []model.Metrics
 		dec := json.NewDecoder(zr)
-		err = dec.Decode(&m)
+		err = dec.Decode(&receivedMetrics)
 		require.NoError(t, err)
 
-		assert.NotContains(t, sentMetrics, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
-		sentMetrics = append(sentMetrics, m.ID)
-		switch m.ID {
-		case "PollCount":
-			assert.Equal(t, model.Counter, m.MType)
-			assert.Equal(t, metrics.pollCount, *m.Delta)
-		case "RandomValue":
-			assert.Equal(t, model.Gauge, m.MType)
-			assert.Equal(t, metrics.randomValue, *m.Value)
-		default:
-			assert.Equal(t, model.Gauge, m.MType)
-			assert.Equal(t, metrics.memStat[m.ID], *m.Value)
+		for _, m := range receivedMetrics {
+			assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
+			processedMetricIDs = append(processedMetricIDs, m.ID)
+			switch m.ID {
+			case "PollCount":
+				assert.Equal(t, model.Counter, m.MType)
+				assert.Equal(t, sentMetrics.pollCount, *m.Delta)
+			case "RandomValue":
+				assert.Equal(t, model.Gauge, m.MType)
+				assert.Equal(t, sentMetrics.randomValue, *m.Value)
+			default:
+				assert.Equal(t, model.Gauge, m.MType)
+				assert.Equal(t, sentMetrics.memStat[m.ID], *m.Value)
+			}
 		}
 	}))
 	defer server.Close()
 	httpClient := resty.New()
 
 	// Act
-	sendReport(server.URL, &metrics, httpClient, logger)
+	sendReport(server.URL, &sentMetrics, httpClient, logger)
 
 	// Assert
-	assert.Equal(t, len(metrics.memStat)+2, len(sentMetrics))
+	assert.Equal(t, len(sentMetrics.memStat)+2, len(processedMetricIDs))
 }
 
 func TestAddDefaultSchema(t *testing.T) {
