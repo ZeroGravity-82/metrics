@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"testing"
+
 	"zerogravity-82/metrics/internal/model"
 
 	"github.com/stretchr/testify/assert"
@@ -41,7 +42,6 @@ func TestUpdateMetric_FailWithEmptyName(t *testing.T) {
 	err := ms.UpdateMetric(ctx, m)
 
 	// Assert
-	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrMetricNotFound)
 	assert.Len(t, ms.metrics, 0)
 }
@@ -117,7 +117,7 @@ func TestUpdateMetric_CanAddNewMetric(t *testing.T) {
 		err := ms.UpdateMetric(ctx, m)
 
 		// Assert
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		assert.Contains(t, ms.metrics, "PollCount")
 		assert.Equal(
 			t,
@@ -140,7 +140,7 @@ func TestUpdateMetric_CanAddNewMetric(t *testing.T) {
 		err := ms.UpdateMetric(ctx, m)
 
 		// Assert
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		assert.Contains(t, ms.metrics, "RandomValue")
 		assert.Equal(
 			t,
@@ -176,7 +176,7 @@ func TestUpdateMetric_CanUpdateExistingMetric(t *testing.T) {
 		err = ms.UpdateMetric(ctx, mu)
 
 		// Assert
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		assert.Contains(t, ms.metrics, "PollCount")
 		assert.Equal(
 			t,
@@ -206,7 +206,7 @@ func TestUpdateMetric_CanUpdateExistingMetric(t *testing.T) {
 		err = ms.UpdateMetric(ctx, mu)
 
 		// Assert
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		assert.Contains(t, ms.metrics, "RandomValue")
 		assert.Equal(
 			t,
@@ -260,7 +260,7 @@ func TestUpdateMetrics_FailEvenWithOneSingleInvalidMetric(t *testing.T) {
 	err = ms.UpdateMetrics(ctx, mu)
 
 	// Assert
-	require.ErrorIs(t, err, ErrUnsupportedMetricType)
+	assert.ErrorIs(t, err, ErrUnsupportedMetricType)
 	assert.Equal(t, ms.metrics["PollCount"], model.Metrics{
 		ID:    "PollCount",
 		MType: model.Counter,
@@ -313,7 +313,7 @@ func TestUpdateMetrics_FailUpdateWithSameNameButAnotherType(t *testing.T) {
 	err = ms.UpdateMetrics(ctx, mu)
 
 	// Assert
-	require.ErrorIs(t, err, ErrInvalidMetricType)
+	assert.ErrorIs(t, err, ErrInvalidMetricType)
 	assert.Equal(t, ms.metrics["PollCount"], model.Metrics{
 		ID:    "PollCount",
 		MType: model.Counter,
@@ -378,7 +378,7 @@ func TestUpdateMetrics_CanAddNewAndUpdateExistingMetrics(t *testing.T) {
 	err = ms.UpdateMetrics(ctx, mu)
 
 	// Assert
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, ms.metrics["FooCounter"], model.Metrics{
 		ID:    "FooCounter",
 		MType: model.Counter,
@@ -404,4 +404,54 @@ func TestUpdateMetrics_CanAddNewAndUpdateExistingMetrics(t *testing.T) {
 		Value: float64Pointer(234.56),
 	})
 	assert.Len(t, ms.metrics, 4)
+}
+
+func TestGetAll(t *testing.T) {
+	// Arrange
+	ctx := context.Background()
+	ms := NewMemStorage()
+	err := ms.UpdateMetric(ctx, model.Metrics{
+		ID:    "PollCount",
+		MType: model.Counter,
+		Delta: int64Pointer(777),
+		Value: nil,
+	})
+	require.NoError(t, err)
+	err = ms.UpdateMetric(ctx, model.Metrics{
+		ID:    "RandomValue",
+		MType: model.Gauge,
+		Delta: nil,
+		Value: float64Pointer(123.45),
+	})
+	require.NoError(t, err)
+
+	// Act
+	metrics, err := ms.GetAll(ctx)
+
+	// Assert
+	assert.NoError(t, err)
+	assert.Equal(t, metrics, ms.metrics)
+}
+
+func TestPing(t *testing.T) {
+	// Arrange
+	ctx := context.Background()
+	ms := NewMemStorage()
+
+	// Act
+	err := ms.Ping(ctx)
+
+	// Assert
+	assert.NoError(t, err)
+}
+
+func TestClose(t *testing.T) {
+	// Arrange
+	ms := NewMemStorage()
+
+	// Act
+	err := ms.Close()
+
+	// Assert
+	assert.NoError(t, err)
 }
