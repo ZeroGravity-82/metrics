@@ -34,7 +34,6 @@ func (ms *MemStorage) UpdateMetric(_ context.Context, m model.Metrics) error {
 			*existedMetric.Delta += *m.Delta
 			ms.metrics[m.ID] = existedMetric
 		}
-		return nil
 	case model.Gauge:
 		if existedMetric, ok := ms.metrics[m.ID]; ok {
 			if m.MType != existedMetric.MType {
@@ -42,10 +41,8 @@ func (ms *MemStorage) UpdateMetric(_ context.Context, m model.Metrics) error {
 			}
 		}
 		ms.metrics[m.ID] = m
-		return nil
-	default:
-		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, m.MType)
 	}
+	return nil
 }
 
 func (ms *MemStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
