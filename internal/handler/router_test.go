@@ -682,7 +682,7 @@ func TestPingHandler(t *testing.T) {
 			assert.Empty(t, bodyBytes)
 			if !tt.forceCloseConnection {
 				err = mock.ExpectationsWereMet()
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
