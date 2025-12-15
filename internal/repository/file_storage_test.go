@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"zerogravity-82/metrics/internal/config"
@@ -81,9 +83,12 @@ func TestNewFileStorage_WithRestore(t *testing.T) {
 			wantError:   false,
 		},
 		{
-			name:        "can restore with valid JSON string",
-			fileContent: `[{"id":"PollCount","type":"counter","delta":777},{"id":"RandomValue","type":"gauge","value":123.45}]`,
-			wantError:   false,
+			name: "can restore with valid JSON string",
+			fileContent: `[
+				{"id":"PollCount","type":"counter","delta":777},
+				{"id":"RandomValue","type":"gauge","value":123.45}
+			]`,
+			wantError: false,
 		},
 	}
 	for _, tt := range tests {
@@ -188,10 +193,42 @@ func TestUpdateMetricInFileStorage_CanAddNewMetric(t *testing.T) {
 			fs.metrics["RandomValue"],
 		)
 		assert.Len(t, fs.metrics, 1)
-		fileContentBz, err := os.ReadFile(tempFile.Name())
+		isEqual, err := JSONEqualFile(t, `[{"id":"RandomValue","type":"gauge","value":123.45}]`, tempFile.Name())
 		require.NoError(t, err)
-		assert.JSONEq(t, `[{"id":"RandomValue","type":"gauge","value":123.45}]`, string(fileContentBz))
+		assert.True(t, isEqual)
 	})
+}
+
+func JSONEqualFile(t *testing.T, JSON string, fileName string) (bool, error) {
+	file, err := os.Open(fileName)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	var metricsFromFile []model.Metrics
+	if err = dec.Decode(&metricsFromFile); err != nil {
+		return false, err
+	}
+
+	r := strings.NewReader(JSON)
+	dec = json.NewDecoder(r)
+	var metricsFromJson []model.Metrics
+	if err = dec.Decode(&metricsFromJson); err != nil {
+		return false, err
+	}
+
+	if len(metricsFromFile) != len(metricsFromJson) {
+		return false, nil
+	}
+
+	for _, m := range metricsFromFile {
+		if !assert.Contains(t, metricsFromJson, m) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func TestUpdateMetricInFileStorage_CanUpdateExistingCounter(t *testing.T) {
@@ -204,7 +241,10 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingCounter(t *testing.T) {
 
 	err = os.WriteFile(
 		tempFile.Name(),
-		[]byte(`[{"id":"PollCount","type":"counter","delta":777},{"id":"RandomValue","type":"gauge","value":123.45}]`),
+		[]byte(`[
+			{"id":"PollCount","type":"counter","delta":777},
+			{"id":"RandomValue","type":"gauge","value":123.45}]
+		`),
 		0666,
 	)
 	require.NoError(t, err)
@@ -238,13 +278,16 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingCounter(t *testing.T) {
 		fs.metrics["RandomValue"],
 	)
 	assert.Len(t, fs.metrics, 2)
-	fileContentBz, err := os.ReadFile(tempFile.Name())
-	require.NoError(t, err)
-	assert.JSONEq(
+	isEqual, err := JSONEqualFile(
 		t,
-		`[{"id":"PollCount","type":"counter","delta":888},{"id":"RandomValue","type":"gauge","value":123.45}]`,
-		string(fileContentBz),
+		`[
+			{"id":"PollCount","type":"counter","delta":888},
+			{"id":"RandomValue","type":"gauge","value":123.45}
+		]`,
+		tempFile.Name(),
 	)
+	require.NoError(t, err)
+	assert.True(t, isEqual)
 }
 
 func TestUpdateMetricInFileStorage_CanUpdateExistingGauge(t *testing.T) {
@@ -257,7 +300,10 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingGauge(t *testing.T) {
 
 	err = os.WriteFile(
 		tempFile.Name(),
-		[]byte(`[{"id":"PollCount","type":"counter","delta":777},{"id":"RandomValue","type":"gauge","value":123.45}]`),
+		[]byte(`[
+			{"id":"PollCount","type":"counter","delta":777},
+			{"id":"RandomValue","type":"gauge","value":123.45}
+		]`),
 		0666,
 	)
 	require.NoError(t, err)
@@ -291,11 +337,320 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingGauge(t *testing.T) {
 		fs.metrics["RandomValue"],
 	)
 	assert.Len(t, fs.metrics, 2)
-	fileContentBz, err := os.ReadFile(tempFile.Name())
-	require.NoError(t, err)
-	assert.JSONEq(
+	isEqual, err := JSONEqualFile(
 		t,
-		`[{"id":"PollCount","type":"counter","delta":777},{"id":"RandomValue","type":"gauge","value":234.56}]`,
-		string(fileContentBz),
+		`[
+			{"id":"PollCount","type":"counter","delta":777},
+			{"id":"RandomValue","type":"gauge","value":234.56}
+		]`,
+		tempFile.Name(),
 	)
+	require.NoError(t, err)
+	assert.True(t, isEqual)
+}
+
+func TestUpdateMetricsInFileStorage_FailEvenWithOneSingleInvalidMetric(t *testing.T) {
+	// Arrange
+	ctx := context.Background()
+	tempFile, err := os.CreateTemp("", "metrics*.json")
+	require.NoError(t, err)
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	err = os.WriteFile(
+		tempFile.Name(),
+		[]byte(`[
+			{"id":"PollCount","type":"counter","delta":777},
+			{"id":"RandomValue","type":"gauge","value":123.45}
+		]`),
+		0666,
+	)
+	require.NoError(t, err)
+	cfg := config.ServerConfig{
+		FileStoragePath: tempFile.Name(),
+		Restore:         true,
+	}
+	fs, err := NewFileStorage(cfg)
+	require.NoError(t, err)
+	mu := []model.Metrics{
+		{
+			ID:    "FooCounter",
+			MType: "unsupported",
+			Delta: int64Pointer(123),
+			Value: nil,
+		},
+		{
+			ID:    "PollCount",
+			MType: model.Counter,
+			Delta: int64Pointer(111),
+			Value: nil,
+		},
+		{
+			ID:    "RandomValue",
+			MType: model.Gauge,
+			Delta: nil,
+			Value: float64Pointer(234.56),
+		},
+	}
+
+	// Act
+	err = fs.UpdateMetrics(ctx, mu)
+
+	// Assert
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnsupportedMetricType)
+	assert.Equal(t, fs.metrics["PollCount"], model.Metrics{
+		ID:    "PollCount",
+		MType: model.Counter,
+		Delta: int64Pointer(777),
+		Value: nil,
+	})
+	assert.Equal(t, fs.metrics["RandomValue"], model.Metrics{
+		ID:    "RandomValue",
+		MType: model.Gauge,
+		Delta: nil,
+		Value: float64Pointer(123.45),
+	})
+	assert.Len(t, fs.metrics, 2)
+	isEqual, err := JSONEqualFile(
+		t,
+		`[
+			{"id":"PollCount","type":"counter","delta":777},
+			{"id":"RandomValue","type":"gauge","value":123.45}
+		]`,
+		tempFile.Name(),
+	)
+	require.NoError(t, err)
+	assert.True(t, isEqual)
+}
+
+func TestUpdateMetricsInFileStorage_CanAddNewAndUpdateExistingMetrics(t *testing.T) {
+	// Arrange
+	ctx := context.Background()
+	tempFile, err := os.CreateTemp("", "metrics*.json")
+	require.NoError(t, err)
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	err = os.WriteFile(
+		tempFile.Name(),
+		[]byte(`[
+			{"id":"PollCount","type":"counter","delta":777},
+			{"id":"RandomValue","type":"gauge","value":123.45}
+		]`),
+		0666,
+	)
+	require.NoError(t, err)
+	cfg := config.ServerConfig{
+		FileStoragePath: tempFile.Name(),
+		Restore:         true,
+	}
+	fs, err := NewFileStorage(cfg)
+	require.NoError(t, err)
+	mu := []model.Metrics{
+		{
+			ID:    "FooCounter",
+			MType: model.Counter,
+			Delta: int64Pointer(123),
+			Value: nil,
+		},
+		{
+			ID:    "BarGauge",
+			MType: model.Gauge,
+			Delta: nil,
+			Value: float64Pointer(0.5),
+		},
+		{
+			ID:    "PollCount",
+			MType: model.Counter,
+			Delta: int64Pointer(111),
+			Value: nil,
+		},
+		{
+			ID:    "RandomValue",
+			MType: model.Gauge,
+			Delta: nil,
+			Value: float64Pointer(234.56),
+		},
+	}
+
+	// Act
+	err = fs.UpdateMetrics(ctx, mu)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, fs.metrics["FooCounter"], model.Metrics{
+		ID:    "FooCounter",
+		MType: model.Counter,
+		Delta: int64Pointer(123),
+		Value: nil,
+	})
+	assert.Equal(t, fs.metrics["BarGauge"], model.Metrics{
+		ID:    "BarGauge",
+		MType: model.Gauge,
+		Delta: nil,
+		Value: float64Pointer(0.5),
+	})
+	assert.Equal(t, fs.metrics["PollCount"], model.Metrics{
+		ID:    "PollCount",
+		MType: model.Counter,
+		Delta: int64Pointer(888),
+		Value: nil,
+	})
+	assert.Equal(t, fs.metrics["RandomValue"], model.Metrics{
+		ID:    "RandomValue",
+		MType: model.Gauge,
+		Delta: nil,
+		Value: float64Pointer(234.56),
+	})
+	assert.Len(t, fs.metrics, 4)
+	isEqual, err := JSONEqualFile(
+		t,
+		`[
+			{"id":"PollCount","type":"counter","delta":888},
+			{"id":"RandomValue","type":"gauge","value":234.56},
+			{"id":"FooCounter","type":"counter","delta":123},
+			{"id":"BarGauge","type":"gauge","value":0.5}
+		]`,
+		tempFile.Name(),
+	)
+	require.NoError(t, err)
+	assert.True(t, isEqual)
+}
+
+func TestGetMetricInFileStorage(t *testing.T) {
+	// Arrange
+	ctx := context.Background()
+	tempFile, err := os.CreateTemp("", "metrics*.json")
+	require.NoError(t, err)
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	err = os.WriteFile(
+		tempFile.Name(),
+		[]byte(`[
+			{"id":"PollCount","type":"counter","delta":777},
+			{"id":"RandomValue","type":"gauge","value":123.45}
+		]`),
+		0666,
+	)
+	require.NoError(t, err)
+	cfg := config.ServerConfig{
+		FileStoragePath: tempFile.Name(),
+		Restore:         true,
+	}
+	fs, err := NewFileStorage(cfg)
+	require.NoError(t, err)
+
+	t.Run("fail when not found by name", func(t *testing.T) {
+		// Act
+		_, err := fs.GetMetric(ctx, model.Counter, "unknown")
+
+		// Assert
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrMetricNotFound)
+	})
+	t.Run("fail when not found with same type", func(t *testing.T) {
+		// Act
+		_, err := fs.GetMetric(ctx, model.Gauge, "PollCount")
+
+		// Assert
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrMetricNotFound)
+	})
+	t.Run("can get counter by name", func(t *testing.T) {
+		// Act
+		m, err := fs.GetMetric(ctx, model.Counter, "PollCount")
+
+		// Assert
+		require.NoError(t, err)
+		assert.Equal(t, "PollCount", m.ID)
+		assert.Equal(t, "counter", m.MType)
+		assert.Equal(t, int64(777), *m.Delta)
+		assert.Nil(t, m.Value)
+	})
+	t.Run("can get gauge by name", func(t *testing.T) {
+		// Act
+		m, err := fs.GetMetric(ctx, model.Gauge, "RandomValue")
+
+		// Assert
+		require.NoError(t, err)
+		assert.Equal(t, "RandomValue", m.ID)
+		assert.Equal(t, "gauge", m.MType)
+		assert.Nil(t, m.Delta)
+		assert.Equal(t, float64(123.45), *m.Value)
+	})
+}
+
+func TestGetAllInFileStorage(t *testing.T) {
+	// Arrange
+	ctx := context.Background()
+	tempFile, err := os.CreateTemp("", "metrics*.json")
+	require.NoError(t, err)
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	err = os.WriteFile(
+		tempFile.Name(),
+		[]byte(`[
+			{"id":"PollCount","type":"counter","delta":777},
+			{"id":"RandomValue","type":"gauge","value":123.45}
+		]`),
+		0666,
+	)
+	require.NoError(t, err)
+	cfg := config.ServerConfig{
+		FileStoragePath: tempFile.Name(),
+		Restore:         true,
+	}
+	fs, err := NewFileStorage(cfg)
+	require.NoError(t, err)
+
+	// Act
+	metrics, err := fs.GetAll(ctx)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, metrics, fs.metrics)
+}
+
+func TestPingInFileStorage(t *testing.T) {
+	// Arrange
+	ctx := context.Background()
+	tempFile, err := os.CreateTemp("", "metrics*.json")
+	require.NoError(t, err)
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	cfg := config.ServerConfig{
+		FileStoragePath: tempFile.Name(),
+	}
+	fs, err := NewFileStorage(cfg)
+	require.NoError(t, err)
+
+	// Act
+	err = fs.Ping(ctx)
+
+	// Assert
+	require.NoError(t, err)
+}
+
+func TestCloseInFileStorage(t *testing.T) {
+	// Arrange
+	tempFile, err := os.CreateTemp("", "metrics*.json")
+	require.NoError(t, err)
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	cfg := config.ServerConfig{
+		FileStoragePath: tempFile.Name(),
+	}
+	fs, err := NewFileStorage(cfg)
+	require.NoError(t, err)
+
+	// Act
+	err = fs.Close()
+
+	// Assert
+	require.NoError(t, err)
 }
