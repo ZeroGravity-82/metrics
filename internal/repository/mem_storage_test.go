@@ -27,7 +27,7 @@ func TestNewMemStorage(t *testing.T) {
 	assert.Empty(t, ms.metrics)
 }
 
-func TestUpdateMetric_FailWithEmptyName(t *testing.T) {
+func TestUpdateMetricInMemStorage_FailWithEmptyName(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	ms := NewMemStorage()
@@ -42,11 +42,12 @@ func TestUpdateMetric_FailWithEmptyName(t *testing.T) {
 	err := ms.UpdateMetric(ctx, m)
 
 	// Assert
+	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrMetricNotFound)
 	assert.Len(t, ms.metrics, 0)
 }
 
-func TestUpdateMetric_FailUpdateWithSameNameButAnotherType(t *testing.T) {
+func TestUpdateMetricInMemStorage_FailUpdateWithSameNameButAnotherType(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	ms := NewMemStorage()
@@ -94,13 +95,14 @@ func TestUpdateMetric_FailUpdateWithSameNameButAnotherType(t *testing.T) {
 			err = ms.UpdateMetric(ctx, tt.m)
 
 			// Assert
+			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrInvalidMetricType)
 			assert.Len(t, ms.metrics, 2)
 		})
 	}
 }
 
-func TestUpdateMetric_CanAddNewMetric(t *testing.T) {
+func TestUpdateMetricInMemStorage_CanAddNewMetric(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	t.Run("can add new counter", func(t *testing.T) {
@@ -117,7 +119,7 @@ func TestUpdateMetric_CanAddNewMetric(t *testing.T) {
 		err := ms.UpdateMetric(ctx, m)
 
 		// Assert
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Contains(t, ms.metrics, "PollCount")
 		assert.Equal(
 			t,
@@ -151,7 +153,7 @@ func TestUpdateMetric_CanAddNewMetric(t *testing.T) {
 	})
 }
 
-func TestUpdateMetric_CanUpdateExistingMetric(t *testing.T) {
+func TestUpdateMetricInMemStorage_CanUpdateExistingMetric(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	t.Run("can update existing counter", func(t *testing.T) {
@@ -217,7 +219,7 @@ func TestUpdateMetric_CanUpdateExistingMetric(t *testing.T) {
 	})
 }
 
-func TestUpdateMetrics_FailEvenWithOneSingleInvalidMetric(t *testing.T) {
+func TestUpdateMetricsInMemStorage_FailEvenWithOneSingleInvalidMetric(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	ms := NewMemStorage()
@@ -260,6 +262,7 @@ func TestUpdateMetrics_FailEvenWithOneSingleInvalidMetric(t *testing.T) {
 	err = ms.UpdateMetrics(ctx, mu)
 
 	// Assert
+	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUnsupportedMetricType)
 	assert.Equal(t, ms.metrics["PollCount"], model.Metrics{
 		ID:    "PollCount",
@@ -276,7 +279,7 @@ func TestUpdateMetrics_FailEvenWithOneSingleInvalidMetric(t *testing.T) {
 	assert.Len(t, ms.metrics, 2)
 }
 
-func TestUpdateMetrics_FailUpdateWithSameNameButAnotherType(t *testing.T) {
+func TestUpdateMetricsInMemStorage_FailUpdateWithSameNameButAnotherType(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	ms := NewMemStorage()
@@ -313,6 +316,7 @@ func TestUpdateMetrics_FailUpdateWithSameNameButAnotherType(t *testing.T) {
 	err = ms.UpdateMetrics(ctx, mu)
 
 	// Assert
+	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrInvalidMetricType)
 	assert.Equal(t, ms.metrics["PollCount"], model.Metrics{
 		ID:    "PollCount",
@@ -329,7 +333,7 @@ func TestUpdateMetrics_FailUpdateWithSameNameButAnotherType(t *testing.T) {
 	assert.Len(t, ms.metrics, 2)
 }
 
-func TestUpdateMetrics_CanAddNewAndUpdateExistingMetrics(t *testing.T) {
+func TestUpdateMetricsInMemStorage_CanAddNewAndUpdateExistingMetrics(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	ms := NewMemStorage()
@@ -406,7 +410,66 @@ func TestUpdateMetrics_CanAddNewAndUpdateExistingMetrics(t *testing.T) {
 	assert.Len(t, ms.metrics, 4)
 }
 
-func TestGetAll(t *testing.T) {
+func TestGetMetricInMemStorage(t *testing.T) {
+	// Arrange
+	ctx := context.Background()
+	ms := NewMemStorage()
+	err := ms.UpdateMetric(ctx, model.Metrics{
+		ID:    "PollCount",
+		MType: model.Counter,
+		Delta: int64Pointer(777),
+		Value: nil,
+	})
+	require.NoError(t, err)
+	err = ms.UpdateMetric(ctx, model.Metrics{
+		ID:    "RandomValue",
+		MType: model.Gauge,
+		Delta: nil,
+		Value: float64Pointer(123.45),
+	})
+	require.NoError(t, err)
+
+	t.Run("fail when not found by name", func(t *testing.T) {
+		// Act
+		_, err := ms.GetMetric(ctx, model.Counter, "unknown")
+
+		// Assert
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrMetricNotFound)
+	})
+	t.Run("fail when not found with same type", func(t *testing.T) {
+		// Act
+		_, err := ms.GetMetric(ctx, model.Gauge, "PollCount")
+
+		// Assert
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrMetricNotFound)
+	})
+	t.Run("can get counter by name", func(t *testing.T) {
+		// Act
+		m, err := ms.GetMetric(ctx, model.Counter, "PollCount")
+
+		// Assert
+		assert.NoError(t, err)
+		assert.Equal(t, "PollCount", m.ID)
+		assert.Equal(t, "counter", m.MType)
+		assert.Equal(t, int64(777), *m.Delta)
+		assert.Nil(t, m.Value)
+	})
+	t.Run("can get gauge by name", func(t *testing.T) {
+		// Act
+		m, err := ms.GetMetric(ctx, model.Gauge, "RandomValue")
+
+		// Assert
+		assert.NoError(t, err)
+		assert.Equal(t, "RandomValue", m.ID)
+		assert.Equal(t, "gauge", m.MType)
+		assert.Nil(t, m.Delta)
+		assert.Equal(t, float64(123.45), *m.Value)
+	})
+}
+
+func TestGetAllInMemStorage(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	ms := NewMemStorage()
@@ -433,7 +496,7 @@ func TestGetAll(t *testing.T) {
 	assert.Equal(t, metrics, ms.metrics)
 }
 
-func TestPing(t *testing.T) {
+func TestPingInMemStorage(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	ms := NewMemStorage()
@@ -445,7 +508,7 @@ func TestPing(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestClose(t *testing.T) {
+func TestCloseInMemStorage(t *testing.T) {
 	// Arrange
 	ms := NewMemStorage()
 

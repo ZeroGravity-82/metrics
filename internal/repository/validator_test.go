@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestUpdateMetric_FailWithInvalidMetricValue(t *testing.T) {
+func TestValidateMetric(t *testing.T) {
 	// Arrange
 	tests := []struct {
 		name      string
