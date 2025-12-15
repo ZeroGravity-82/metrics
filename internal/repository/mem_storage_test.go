@@ -142,7 +142,7 @@ func TestUpdateMetricInMemStorage_CanAddNewMetric(t *testing.T) {
 		err := ms.UpdateMetric(ctx, m)
 
 		// Assert
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Contains(t, ms.metrics, "RandomValue")
 		assert.Equal(
 			t,
@@ -178,7 +178,7 @@ func TestUpdateMetricInMemStorage_CanUpdateExistingMetric(t *testing.T) {
 		err = ms.UpdateMetric(ctx, mu)
 
 		// Assert
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Contains(t, ms.metrics, "PollCount")
 		assert.Equal(
 			t,
@@ -208,7 +208,7 @@ func TestUpdateMetricInMemStorage_CanUpdateExistingMetric(t *testing.T) {
 		err = ms.UpdateMetric(ctx, mu)
 
 		// Assert
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Contains(t, ms.metrics, "RandomValue")
 		assert.Equal(
 			t,
@@ -382,7 +382,7 @@ func TestUpdateMetricsInMemStorage_CanAddNewAndUpdateExistingMetrics(t *testing.
 	err = ms.UpdateMetrics(ctx, mu)
 
 	// Assert
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, ms.metrics["FooCounter"], model.Metrics{
 		ID:    "FooCounter",
 		MType: model.Counter,
@@ -450,7 +450,7 @@ func TestGetMetricInMemStorage(t *testing.T) {
 		m, err := ms.GetMetric(ctx, model.Counter, "PollCount")
 
 		// Assert
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "PollCount", m.ID)
 		assert.Equal(t, "counter", m.MType)
 		assert.Equal(t, int64(777), *m.Delta)
@@ -461,7 +461,7 @@ func TestGetMetricInMemStorage(t *testing.T) {
 		m, err := ms.GetMetric(ctx, model.Gauge, "RandomValue")
 
 		// Assert
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "RandomValue", m.ID)
 		assert.Equal(t, "gauge", m.MType)
 		assert.Nil(t, m.Delta)
@@ -492,7 +492,7 @@ func TestGetAllInMemStorage(t *testing.T) {
 	metrics, err := ms.GetAll(ctx)
 
 	// Assert
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, metrics, ms.metrics)
 }
 
@@ -505,7 +505,7 @@ func TestPingInMemStorage(t *testing.T) {
 	err := ms.Ping(ctx)
 
 	// Assert
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestCloseInMemStorage(t *testing.T) {
@@ -516,5 +516,5 @@ func TestCloseInMemStorage(t *testing.T) {
 	err := ms.Close()
 
 	// Assert
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
