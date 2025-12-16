@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"zerogravity-82/metrics/internal/config"
-	"zerogravity-82/metrics/internal/model"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"zerogravity-82/metrics/internal/config"
+	"zerogravity-82/metrics/internal/model"
 )
 
 func TestNewFileStorage_FailInstantiateWhenCantOpenCfgFile(t *testing.T) {

@@ -3,9 +3,9 @@ package repository
 import (
 	"testing"
 
-	"zerogravity-82/metrics/internal/model"
-
 	"github.com/stretchr/testify/assert"
+
+	"zerogravity-82/metrics/internal/model"
 )
 
 func TestValidateMetric(t *testing.T) {

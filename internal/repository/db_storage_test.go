@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"testing"
-	"zerogravity-82/metrics/internal/model"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"zerogravity-82/metrics/internal/model"
 )
 
 func TestNewDbStorage_CanInstantiate(t *testing.T) {
