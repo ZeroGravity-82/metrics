@@ -20,10 +20,10 @@ type DBStorage struct {
 }
 
 type DBMetric struct {
-	id    string
-	mType string `db:"type"`
-	delta sql.NullInt64
-	value sql.NullFloat64
+	ID    string
+	MType string `db:"type"`
+	Delta sql.NullInt64
+	Value sql.NullFloat64
 }
 
 func NewDbStorage(db *sqlx.DB) *DBStorage {
@@ -95,12 +95,7 @@ func (ds *DBStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics)
 			value.Valid = false
 		}
 
-		DBMetrics = append(DBMetrics, DBMetric{
-			id:    m.ID,
-			mType: m.MType,
-			delta: delta,
-			value: value,
-		})
+		DBMetrics = append(DBMetrics, DBMetric{ID: m.ID, MType: m.MType, Delta: delta, Value: value})
 
 		if len(DBMetrics) >= updateBatchSize {
 			_, err = ds.db.NamedExec("INSERT INTO metric (id, type, delta, value) VALUES (:id, :type, :delta, :value) "+
@@ -139,12 +134,10 @@ func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.
 		return model.Metrics{}, err
 	}
 
-	return model.Metrics{
-		ID:    m.id,
-		MType: m.mType,
-		Delta: &m.delta.Int64,
-		Value: &m.value.Float64,
-	}, nil
+	if m.MType == model.Counter {
+		return model.Metrics{ID: m.ID, MType: m.MType, Delta: &m.Delta.Int64, Value: nil}, nil
+	}
+	return model.Metrics{ID: m.ID, MType: m.MType, Delta: nil, Value: &m.Value.Float64}, nil
 }
 
 func (ds *DBStorage) GetAll(ctx context.Context) (map[string]model.Metrics, error) {
@@ -155,11 +148,21 @@ func (ds *DBStorage) GetAll(ctx context.Context) (map[string]model.Metrics, erro
 	}
 	metricsMap := make(map[string]model.Metrics, len(metrics))
 	for _, m := range metrics {
-		metricsMap[m.id] = model.Metrics{
-			ID:    m.id,
-			MType: m.mType,
-			Delta: &m.delta.Int64,
-			Value: &m.value.Float64,
+		if m.MType == model.Counter {
+			metricsMap[m.ID] = model.Metrics{
+				ID:    m.ID,
+				MType: m.MType,
+				Delta: &m.Delta.Int64,
+				Value: nil,
+			}
+		}
+		if m.MType == model.Gauge {
+			metricsMap[m.ID] = model.Metrics{
+				ID:    m.ID,
+				MType: m.MType,
+				Delta: nil,
+				Value: &m.Value.Float64,
+			}
 		}
 	}
 	return metricsMap, nil

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewFileStorage_FailWhenCantOpenCfgFile(t *testing.T) {
+func TestNewFileStorage_FailInstantiateWhenCantOpenCfgFile(t *testing.T) {
 	// Arrange
 	cfg := config.ServerConfig{
 		FileStoragePath: "",
@@ -30,10 +30,9 @@ func TestNewFileStorage_FailWhenCantOpenCfgFile(t *testing.T) {
 	var pathError *os.PathError
 	ok := errors.As(err, &pathError)
 	require.True(t, ok)
-
 }
 
-func TestNewFileStorage_WithoutRestore(t *testing.T) {
+func TestNewFileStorage_CanInstantiateWithoutRestore(t *testing.T) {
 	// Arrange
 	tempFile, err := os.CreateTemp("", "metrics*.json")
 	require.NoError(t, err)
@@ -57,12 +56,13 @@ func TestNewFileStorage_WithoutRestore(t *testing.T) {
 	assert.Empty(t, fs.metrics)
 }
 
-func TestNewFileStorage_WithRestore(t *testing.T) {
+func TestNewFileStorage_CanInstantiateWithRestore(t *testing.T) {
 	// Arrange
 	tempFile, err := os.CreateTemp("", "metrics*.json")
 	require.NoError(t, err)
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
+
 	cfg := config.ServerConfig{
 		FileStoragePath: tempFile.Name(),
 		Restore:         true,
@@ -147,12 +147,7 @@ func TestUpdateMetricInFileStorage_CanAddNewMetric(t *testing.T) {
 		// Arrange
 		fs, err := NewFileStorage(cfg)
 		require.NoError(t, err)
-		m := model.Metrics{
-			ID:    "PollCount",
-			MType: model.Counter,
-			Delta: int64Pointer(777),
-			Value: nil,
-		}
+		m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777), Value: nil}
 
 		// Act
 		err = fs.UpdateMetric(ctx, m)
@@ -174,12 +169,7 @@ func TestUpdateMetricInFileStorage_CanAddNewMetric(t *testing.T) {
 		// Arrange
 		fs, err := NewFileStorage(cfg)
 		require.NoError(t, err)
-		m := model.Metrics{
-			ID:    "RandomValue",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(123.45),
-		}
+		m := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(123.45)}
 
 		// Act
 		err = fs.UpdateMetric(ctx, m)
@@ -254,12 +244,7 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingCounter(t *testing.T) {
 	}
 	fs, err := NewFileStorage(cfg)
 	require.NoError(t, err)
-	m := model.Metrics{
-		ID:    "PollCount",
-		MType: model.Counter,
-		Delta: int64Pointer(111),
-		Value: nil,
-	}
+	m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil}
 
 	// Act
 	err = fs.UpdateMetric(ctx, m)
@@ -313,12 +298,7 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingGauge(t *testing.T) {
 	}
 	fs, err := NewFileStorage(cfg)
 	require.NoError(t, err)
-	m := model.Metrics{
-		ID:    "RandomValue",
-		MType: model.Gauge,
-		Delta: nil,
-		Value: float64Pointer(234.56),
-	}
+	m := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)}
 
 	// Act
 	err = fs.UpdateMetric(ctx, m)
@@ -373,24 +353,9 @@ func TestUpdateMetricsInFileStorage_FailEvenWithOneSingleInvalidMetric(t *testin
 	fs, err := NewFileStorage(cfg)
 	require.NoError(t, err)
 	mu := []model.Metrics{
-		{
-			ID:    "FooCounter",
-			MType: "unsupported",
-			Delta: int64Pointer(123),
-			Value: nil,
-		},
-		{
-			ID:    "PollCount",
-			MType: model.Counter,
-			Delta: int64Pointer(111),
-			Value: nil,
-		},
-		{
-			ID:    "RandomValue",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(234.56),
-		},
+		{ID: "FooCounter", MType: "unsupported", Delta: int64Pointer(123), Value: nil},
+		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil},
+		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)},
 	}
 
 	// Act
@@ -448,30 +413,10 @@ func TestUpdateMetricsInFileStorage_CanAddNewAndUpdateExistingMetrics(t *testing
 	fs, err := NewFileStorage(cfg)
 	require.NoError(t, err)
 	mu := []model.Metrics{
-		{
-			ID:    "FooCounter",
-			MType: model.Counter,
-			Delta: int64Pointer(123),
-			Value: nil,
-		},
-		{
-			ID:    "BarGauge",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(0.5),
-		},
-		{
-			ID:    "PollCount",
-			MType: model.Counter,
-			Delta: int64Pointer(111),
-			Value: nil,
-		},
-		{
-			ID:    "RandomValue",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(234.56),
-		},
+		{ID: "FooCounter", MType: model.Counter, Delta: int64Pointer(123), Value: nil},
+		{ID: "BarGauge", MType: model.Gauge, Delta: nil, Value: float64Pointer(0.5)},
+		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil},
+		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)},
 	}
 
 	// Act

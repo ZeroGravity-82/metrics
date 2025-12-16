@@ -18,7 +18,7 @@ func float64Pointer(v float64) *float64 {
 	return &v
 }
 
-func TestNewMemStorage(t *testing.T) {
+func TestNewMemStorage_CanInstantiate(t *testing.T) {
 	// Act
 	ms := NewMemStorage()
 
@@ -31,12 +31,7 @@ func TestUpdateMetricInMemStorage_FailWithEmptyName(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	ms := NewMemStorage()
-	m := model.Metrics{
-		ID:    "",
-		MType: model.Counter,
-		Delta: int64Pointer(777),
-		Value: nil,
-	}
+	m := model.Metrics{ID: "", MType: model.Counter, Delta: int64Pointer(777), Value: nil}
 
 	// Act
 	err := ms.UpdateMetric(ctx, m)
@@ -108,12 +103,7 @@ func TestUpdateMetricInMemStorage_CanAddNewMetric(t *testing.T) {
 	t.Run("can add new counter", func(t *testing.T) {
 		// Arrange
 		ms := NewMemStorage()
-		m := model.Metrics{
-			ID:    "PollCount",
-			MType: model.Counter,
-			Delta: int64Pointer(777),
-			Value: nil,
-		}
+		m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777), Value: nil}
 
 		// Act
 		err := ms.UpdateMetric(ctx, m)
@@ -131,12 +121,7 @@ func TestUpdateMetricInMemStorage_CanAddNewMetric(t *testing.T) {
 	t.Run("can add new gauge", func(t *testing.T) {
 		// Arrange
 		ms := NewMemStorage()
-		m := model.Metrics{
-			ID:    "RandomValue",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(123.45),
-		}
+		m := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(123.45)}
 
 		// Act
 		err := ms.UpdateMetric(ctx, m)
@@ -159,20 +144,10 @@ func TestUpdateMetricInMemStorage_CanUpdateExistingMetric(t *testing.T) {
 	t.Run("can update existing counter", func(t *testing.T) {
 		// Arrange
 		ms := NewMemStorage()
-		m := model.Metrics{
-			ID:    "PollCount",
-			MType: model.Counter,
-			Delta: int64Pointer(777),
-			Value: nil,
-		}
+		m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777), Value: nil}
 		err := ms.UpdateMetric(ctx, m)
 		require.NoError(t, err)
-		mu := model.Metrics{
-			ID:    "PollCount",
-			MType: model.Counter,
-			Delta: int64Pointer(111),
-			Value: nil,
-		}
+		mu := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil}
 
 		// Act
 		err = ms.UpdateMetric(ctx, mu)
@@ -190,19 +165,9 @@ func TestUpdateMetricInMemStorage_CanUpdateExistingMetric(t *testing.T) {
 	t.Run("can update existing gauge", func(t *testing.T) {
 		// Arrange
 		ms := NewMemStorage()
-		m := model.Metrics{
-			ID:    "RandomValue",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(123.45),
-		}
+		m := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(123.45)}
 		err := ms.UpdateMetric(ctx, m)
-		mu := model.Metrics{
-			ID:    "RandomValue",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(234.56),
-		}
+		mu := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)}
 
 		// Act
 		err = ms.UpdateMetric(ctx, mu)
@@ -238,24 +203,9 @@ func TestUpdateMetricsInMemStorage_FailEvenWithOneSingleInvalidMetric(t *testing
 	})
 	require.NoError(t, err)
 	mu := []model.Metrics{
-		{
-			ID:    "FooCounter",
-			MType: "unsupported",
-			Delta: int64Pointer(123),
-			Value: nil,
-		},
-		{
-			ID:    "PollCount",
-			MType: model.Counter,
-			Delta: int64Pointer(111),
-			Value: nil,
-		},
-		{
-			ID:    "RandomValue",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(234.56),
-		},
+		{ID: "FooCounter", MType: "unsupported", Delta: int64Pointer(123), Value: nil},
+		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil},
+		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)},
 	}
 
 	// Act
@@ -298,18 +248,8 @@ func TestUpdateMetricsInMemStorage_FailUpdateWithSameNameButAnotherType(t *testi
 	})
 	require.NoError(t, err)
 	mu := []model.Metrics{
-		{
-			ID:    "PollCount",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(0.5),
-		},
-		{
-			ID:    "RandomValue",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(234.56),
-		},
+		{ID: "PollCount", MType: model.Gauge, Delta: nil, Value: float64Pointer(0.5)},
+		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)},
 	}
 
 	// Act
@@ -352,30 +292,10 @@ func TestUpdateMetricsInMemStorage_CanAddNewAndUpdateExistingMetrics(t *testing.
 	})
 	require.NoError(t, err)
 	mu := []model.Metrics{
-		{
-			ID:    "FooCounter",
-			MType: model.Counter,
-			Delta: int64Pointer(123),
-			Value: nil,
-		},
-		{
-			ID:    "BarGauge",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(0.5),
-		},
-		{
-			ID:    "PollCount",
-			MType: model.Counter,
-			Delta: int64Pointer(111),
-			Value: nil,
-		},
-		{
-			ID:    "RandomValue",
-			MType: model.Gauge,
-			Delta: nil,
-			Value: float64Pointer(234.56),
-		},
+		{ID: "FooCounter", MType: model.Counter, Delta: int64Pointer(123), Value: nil},
+		{ID: "BarGauge", MType: model.Gauge, Delta: nil, Value: float64Pointer(0.5)},
+		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil},
+		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)},
 	}
 
 	// Act
