@@ -140,15 +140,15 @@ func TestUpdateMetricsInDbStorage_CanAddNewMetrics(t *testing.T) {
 		{ID: "GCCPUFraction", MType: model.Gauge, Delta: nil, Value: float64Pointer(0)},
 		{ID: "GCSys", MType: model.Gauge, Delta: nil, Value: float64Pointer(1888528)},
 		{ID: "HeapAlloc", MType: model.Gauge, Delta: nil, Value: float64Pointer(3329920)},
+		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(222), Value: nil},
 		{ID: "HeapIdle", MType: model.Gauge, Delta: nil, Value: float64Pointer(3948544)},
 		{ID: "HeapInuse", MType: model.Gauge, Delta: nil, Value: float64Pointer(4112384)},
 		{ID: "HeapObjects", MType: model.Gauge, Delta: nil, Value: float64Pointer(1465)},
+		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(345.67)},
 	}
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO metric").
 		WithArgs(
-			"PollCount", "counter", sql.NullInt64{Int64: 111, Valid: true}, sql.NullFloat64{Float64: 0, Valid: false},
-			"RandomValue", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 234.56, Valid: true},
 			"Alloc", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 3329920, Valid: true},
 			"BuckHashSys", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 1443559, Valid: true},
 			"Frees", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 84, Valid: true},
@@ -157,13 +157,16 @@ func TestUpdateMetricsInDbStorage_CanAddNewMetrics(t *testing.T) {
 			"HeapAlloc", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 3329920, Valid: true},
 			"HeapIdle", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 3948544, Valid: true},
 			"HeapInuse", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 4112384, Valid: true},
+			"PollCount", "counter", sql.NullInt64{Int64: 333, Valid: true}, sql.NullFloat64{Float64: 0, Valid: false},
+			"RandomValue", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 234.56, Valid: true},
 		).
 		WillReturnResult(sqlmock.NewResult(1, 10))
 	mock.ExpectExec("INSERT INTO metric").
 		WithArgs(
 			"HeapObjects", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 1465, Valid: true},
+			"RandomValue", "gauge", sql.NullInt64{Int64: 0, Valid: false}, sql.NullFloat64{Float64: 345.67, Valid: true},
 		).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+		WillReturnResult(sqlmock.NewResult(1, 2))
 	mock.ExpectCommit()
 
 	// Act

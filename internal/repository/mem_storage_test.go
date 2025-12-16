@@ -296,6 +296,8 @@ func TestUpdateMetricsInMemStorage_CanAddNewAndUpdateExistingMetrics(t *testing.
 		{ID: "BarGauge", MType: model.Gauge, Delta: nil, Value: float64Pointer(0.5)},
 		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil},
 		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)},
+		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(222), Value: nil},
+		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(345.67)},
 	}
 
 	// Act
@@ -318,14 +320,14 @@ func TestUpdateMetricsInMemStorage_CanAddNewAndUpdateExistingMetrics(t *testing.
 	assert.Equal(t, ms.metrics["PollCount"], model.Metrics{
 		ID:    "PollCount",
 		MType: model.Counter,
-		Delta: int64Pointer(888),
+		Delta: int64Pointer(1110),
 		Value: nil,
 	})
 	assert.Equal(t, ms.metrics["RandomValue"], model.Metrics{
 		ID:    "RandomValue",
 		MType: model.Gauge,
 		Delta: nil,
-		Value: float64Pointer(234.56),
+		Value: float64Pointer(345.67),
 	})
 	assert.Len(t, ms.metrics, 4)
 }

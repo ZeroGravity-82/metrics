@@ -417,6 +417,8 @@ func TestUpdateMetricsInFileStorage_CanAddNewAndUpdateExistingMetrics(t *testing
 		{ID: "BarGauge", MType: model.Gauge, Delta: nil, Value: float64Pointer(0.5)},
 		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil},
 		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)},
+		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(222), Value: nil},
+		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(345.67)},
 	}
 
 	// Act
@@ -439,21 +441,21 @@ func TestUpdateMetricsInFileStorage_CanAddNewAndUpdateExistingMetrics(t *testing
 	assert.Equal(t, fs.metrics["PollCount"], model.Metrics{
 		ID:    "PollCount",
 		MType: model.Counter,
-		Delta: int64Pointer(888),
+		Delta: int64Pointer(1110),
 		Value: nil,
 	})
 	assert.Equal(t, fs.metrics["RandomValue"], model.Metrics{
 		ID:    "RandomValue",
 		MType: model.Gauge,
 		Delta: nil,
-		Value: float64Pointer(234.56),
+		Value: float64Pointer(345.67),
 	})
 	assert.Len(t, fs.metrics, 4)
 	isEqual, err := JSONEqualFile(
 		t,
 		`[
-			{"id":"PollCount","type":"counter","delta":888},
-			{"id":"RandomValue","type":"gauge","value":234.56},
+			{"id":"PollCount","type":"counter","delta":1110},
+			{"id":"RandomValue","type":"gauge","value":345.67},
 			{"id":"FooCounter","type":"counter","delta":123},
 			{"id":"BarGauge","type":"gauge","value":0.5}
 		]`,

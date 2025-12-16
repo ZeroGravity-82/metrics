@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jmoiron/sqlx"
 
@@ -73,10 +74,14 @@ func (ds *DBStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics)
 	}
 	defer tx.Rollback()
 
-	DBMetrics := make([]DBMetric, 0, updateBatchSize)
+	DBMetricsMap := make(map[string]DBMetric)
 	for _, m := range metrics {
 		if err := validateMetric(m); err != nil {
 			return fmt.Errorf("failed to update metrics: %w", err)
+		}
+
+		if _, ok := DBMetricsMap[m.ID]; ok && m.MType == model.Counter {
+			*m.Delta += DBMetricsMap[m.ID].Delta.Int64 // Если попался счетчик, надо его инкрементировать
 		}
 
 		var delta sql.NullInt64
@@ -95,24 +100,40 @@ func (ds *DBStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics)
 			value.Valid = false
 		}
 
-		DBMetrics = append(DBMetrics, DBMetric{ID: m.ID, MType: m.MType, Delta: delta, Value: value})
-
-		if len(DBMetrics) >= updateBatchSize {
+		DBMetricsMap[m.ID] = DBMetric{ID: m.ID, MType: m.MType, Delta: delta, Value: value}
+		if len(DBMetricsMap) >= updateBatchSize {
+			DBMetricsSlice := buildSortedDbMetricsSlice(DBMetricsMap)
 			_, err = ds.db.NamedExec("INSERT INTO metric (id, type, delta, value) VALUES (:id, :type, :delta, :value) "+
-				"ON CONFLICT (id) DO UPDATE SET delta = metric.delta + EXCLUDED.delta, value = EXCLUDED.value", DBMetrics)
-			DBMetrics = DBMetrics[:0]
+				"ON CONFLICT (id) DO UPDATE SET delta = metric.delta + EXCLUDED.delta, value = EXCLUDED.value", DBMetricsSlice)
 			if err != nil {
 				return fmt.Errorf("failed to update metrics: %w", err)
 			}
+			DBMetricsMap = make(map[string]DBMetric)
 		}
 	}
-	_, err = ds.db.NamedExec("INSERT INTO metric (id, type, delta, value) VALUES (:id, :type, :delta, :value) "+
-		"ON CONFLICT (id) DO UPDATE SET delta = metric.delta + EXCLUDED.delta, value = EXCLUDED.value", DBMetrics)
-	if err != nil {
-		return fmt.Errorf("failed to update metrics: %w", err)
+	if len(DBMetricsMap) > 0 {
+		DBMetricsSlice := buildSortedDbMetricsSlice(DBMetricsMap)
+		_, err = ds.db.NamedExec("INSERT INTO metric (id, type, delta, value) VALUES (:id, :type, :delta, :value) "+
+			"ON CONFLICT (id) DO UPDATE SET delta = metric.delta + EXCLUDED.delta, value = EXCLUDED.value", DBMetricsSlice)
+		if err != nil {
+			return fmt.Errorf("failed to update metrics: %w", err)
+		}
 	}
-
 	return tx.Commit()
+}
+
+func buildSortedDbMetricsSlice(metricsMap map[string]DBMetric) []DBMetric {
+	metricsIds := make([]string, 0, len(metricsMap))
+	for id := range metricsMap {
+		metricsIds = append(metricsIds, id)
+	}
+	slices.Sort(metricsIds)
+
+	metricsSlice := make([]DBMetric, 0, len(metricsMap))
+	for _, id := range metricsIds {
+		metricsSlice = append(metricsSlice, metricsMap[id])
+	}
+	return metricsSlice
 }
 
 func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error) {
