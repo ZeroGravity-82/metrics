@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
@@ -32,8 +35,9 @@ func NewApplication() *Application {
 	if cfg.DatabaseDSN != "" {
 		db, err := sqlx.Connect("pgx", cfg.DatabaseDSN)
 		if err != nil {
-			logger.Fatal().Str("error", err.Error()).Msg("Database error")
+			logger.Fatal().Str("error", err.Error()).Msg("Failed to connect to the database")
 		}
+		applyMigrations(err, db, logger)
 		storage = repository.NewDBStorage(db)
 	} else if cfg.FileStoragePath != "" {
 		storage, err = repository.NewFileStorage(cfg)
@@ -47,6 +51,20 @@ func NewApplication() *Application {
 		Logger:  logger,
 		Cfg:     cfg,
 		Storage: storage,
+	}
+}
+
+func applyMigrations(err error, db *sqlx.DB, logger zerolog.Logger) {
+	driver, err := postgres.WithInstance(db.DB, &postgres.Config{})
+	if err != nil {
+		logger.Fatal().Str("error", err.Error()).Msg("Failed to initialize database driver")
+	}
+	m, err := migrate.NewWithDatabaseInstance("file://migrations", "postgres", driver)
+	if err != nil {
+		logger.Fatal().Str("error", err.Error()).Msg("Failed to initialize migrations")
+	}
+	if err = m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		logger.Fatal().Str("error", err.Error()).Msg("Failed to apply migrations")
 	}
 }
 
