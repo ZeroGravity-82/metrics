@@ -167,6 +167,7 @@ func TestUpdateMetricInMemStorage_CanUpdateExistingMetric(t *testing.T) {
 		ms := NewMemStorage()
 		m := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(123.45)}
 		err := ms.UpdateMetric(ctx, m)
+		require.NoError(t, err)
 		mu := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)}
 
 		// Act

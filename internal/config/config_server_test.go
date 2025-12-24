@@ -24,6 +24,7 @@ func TestCanGetServerConfig_Default(t *testing.T) {
 	err = os.Unsetenv("RESTORE")
 	require.NoError(t, err)
 	err = os.Unsetenv("DATABASE_DSN")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetServerConfig()
