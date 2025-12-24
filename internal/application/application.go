@@ -37,7 +37,7 @@ func NewApplication() *Application {
 		if err != nil {
 			logger.Fatal().Str("error", err.Error()).Msg("Failed to connect to the database")
 		}
-		applyMigrations(err, db, logger)
+		applyMigrations(db, logger)
 		storage = repository.NewDBStorage(db)
 	} else if cfg.FileStoragePath != "" {
 		storage, err = repository.NewFileStorage(cfg)
@@ -54,7 +54,7 @@ func NewApplication() *Application {
 	}
 }
 
-func applyMigrations(err error, db *sqlx.DB, logger zerolog.Logger) {
+func applyMigrations(db *sqlx.DB, logger zerolog.Logger) {
 	driver, err := postgres.WithInstance(db.DB, &postgres.Config{})
 	if err != nil {
 		logger.Fatal().Str("error", err.Error()).Msg("Failed to initialize database driver")
