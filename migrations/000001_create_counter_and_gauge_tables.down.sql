@@ -1,2 +1,1 @@
-DROP TABLE counter;
-DROP TABLE gauge;
+DROP TABLE metric;
