@@ -204,17 +204,17 @@ func JSONEqualFile(t *testing.T, JSON string, fileName string) (bool, error) {
 
 	r := strings.NewReader(JSON)
 	dec = json.NewDecoder(r)
-	var metricsFromJson []model.Metrics
-	if err = dec.Decode(&metricsFromJson); err != nil {
+	var metricsFromJSON []model.Metrics
+	if err = dec.Decode(&metricsFromJSON); err != nil {
 		return false, err
 	}
 
-	if len(metricsFromFile) != len(metricsFromJson) {
+	if len(metricsFromFile) != len(metricsFromJSON) {
 		return false, nil
 	}
 
 	for _, m := range metricsFromFile {
-		if !assert.Contains(t, metricsFromJson, m) {
+		if !assert.Contains(t, metricsFromJSON, m) {
 			return false, nil
 		}
 	}
