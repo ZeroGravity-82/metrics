@@ -5,8 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"slices"
+	"time"
 
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 
 	"zerogravity-82/metrics/internal/model"
@@ -14,6 +18,7 @@ import (
 
 const (
 	updateBatchSize = 10
+	maxRetries      = 3
 )
 
 type DBStorage struct {
@@ -32,6 +37,44 @@ func NewDbStorage(db *sqlx.DB) *DBStorage {
 }
 
 func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
+	var err error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		err = ds.doUpdateMetric(ctx, m)
+		if err == nil {
+			return nil
+		}
+		if !isRetryableError(err) {
+			return err
+		}
+		if attempt == 0 {
+			time.Sleep(1 * time.Second)
+		} else {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	return fmt.Errorf("failed to update metric after %d attempts: %w", maxRetries+1, err)
+}
+
+func isRetryableError(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case pgerrcode.ConnectionException, pgerrcode.ConnectionDoesNotExist, pgerrcode.ConnectionFailure:
+			fmt.Println("RETRYABLE!")
+			return true
+		}
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if opErr.Err.Error() == "connect: connection refused" {
+			fmt.Println("RETRYABLE!")
+			return true
+		}
+	}
+	return false
+}
+
+func (ds *DBStorage) doUpdateMetric(ctx context.Context, m model.Metrics) error {
 	if err := validateMetric(m); err != nil {
 		return err
 	}
@@ -68,6 +111,25 @@ func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
 }
 
 func (ds *DBStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
+	var err error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		err = ds.doUpdateMetrics(ctx, metrics)
+		if err == nil {
+			return nil
+		}
+		if !isRetryableError(err) {
+			return err
+		}
+		if attempt == 0 {
+			time.Sleep(1 * time.Second)
+		} else {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	return fmt.Errorf("failed to update metrics after %d attempts: %w", maxRetries+1, err)
+}
+
+func (ds *DBStorage) doUpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to update metrics: %w", err)
@@ -137,6 +199,25 @@ func buildSortedDbMetricsSlice(metricsMap map[string]DBMetric) []DBMetric {
 }
 
 func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error) {
+	var err error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		m, err := ds.doGetMetric(ctx, mType, mName)
+		if err == nil {
+			return m, nil
+		}
+		if !isRetryableError(err) {
+			return model.Metrics{}, err
+		}
+		if attempt == 0 {
+			time.Sleep(1 * time.Second)
+		} else {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	return model.Metrics{}, fmt.Errorf("failed to get metric after %d attempts: %w", maxRetries+1, err)
+}
+
+func (ds *DBStorage) doGetMetric(ctx context.Context, mType, mName string) (model.Metrics, error) {
 	if mType != model.Counter && mType != model.Gauge {
 		return model.Metrics{}, fmt.Errorf("%w: %s", ErrUnsupportedMetricType, mType)
 	}
@@ -162,6 +243,25 @@ func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.
 }
 
 func (ds *DBStorage) GetAll(ctx context.Context) (map[string]model.Metrics, error) {
+	var err error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		metrics, err := ds.doGetAll(ctx)
+		if err == nil {
+			return metrics, nil
+		}
+		if !isRetryableError(err) {
+			return nil, err
+		}
+		if attempt == 0 {
+			time.Sleep(1 * time.Second)
+		} else {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	return nil, fmt.Errorf("failed to get all metric after %d attempts: %w", maxRetries+1, err)
+}
+
+func (ds *DBStorage) doGetAll(ctx context.Context) (map[string]model.Metrics, error) {
 	var metrics = make([]DBMetric, 0)
 
 	if err := ds.db.SelectContext(ctx, &metrics, "SELECT id, type, delta, value FROM metric"); err != nil {
