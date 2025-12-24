@@ -22,7 +22,7 @@ func TestNewDbStorage_CanInstantiate(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 
 	// Act
-	ds := NewDbStorage(sqlxDB)
+	ds := NewDBStorage(sqlxDB)
 
 	// Assert
 	assert.Equal(t, sqlxDB, ds.db)
@@ -36,7 +36,7 @@ func TestUpdateMetricInDbStorage_FailWithEmptyName(t *testing.T) {
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	ds := NewDbStorage(sqlxDB)
+	ds := NewDBStorage(sqlxDB)
 	m := model.Metrics{ID: "", MType: model.Counter, Delta: int64Pointer(777), Value: nil}
 
 	// Act
@@ -60,7 +60,7 @@ func TestUpdateMetricInDbStorage_CanAddNewMetric(t *testing.T) {
 
 	t.Run("can add new counter", func(t *testing.T) {
 		// Arrange
-		ds := NewDbStorage(sqlxDB)
+		ds := NewDBStorage(sqlxDB)
 		m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777), Value: nil}
 		delta := sql.NullInt64{Int64: 777, Valid: true}
 		value := sql.NullFloat64{Float64: 0, Valid: false}
@@ -79,7 +79,7 @@ func TestUpdateMetricInDbStorage_CanAddNewMetric(t *testing.T) {
 
 	t.Run("can add new gauge", func(t *testing.T) {
 		// Arrange
-		ds := NewDbStorage(sqlxDB)
+		ds := NewDBStorage(sqlxDB)
 		m := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(123.45)}
 		delta := sql.NullInt64{Int64: 0, Valid: false}
 		value := sql.NullFloat64{Float64: 123.45, Valid: true}
@@ -105,7 +105,7 @@ func TestUpdateMetricsInDbStorage_FailEvenWithOneSingleInvalidMetric(t *testing.
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	ds := NewDbStorage(sqlxDB)
+	ds := NewDBStorage(sqlxDB)
 	mu := []model.Metrics{
 		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil},
 		{ID: "RandomValue", MType: "unsupported", Delta: nil, Value: float64Pointer(234.56)},
@@ -131,7 +131,7 @@ func TestUpdateMetricsInDbStorage_CanAddNewMetrics(t *testing.T) {
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	ds := NewDbStorage(sqlxDB)
+	ds := NewDBStorage(sqlxDB)
 	mu := []model.Metrics{
 		{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil},
 		{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)},
@@ -187,7 +187,7 @@ func TestGetMetricInDbStorage(t *testing.T) {
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	ds := NewDbStorage(sqlxDB)
+	ds := NewDBStorage(sqlxDB)
 
 	t.Run("fail when not found by name", func(t *testing.T) {
 		// Arrange
@@ -263,7 +263,7 @@ func TestGetAllInDbStorage(t *testing.T) {
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	ds := NewDbStorage(sqlxDB)
+	ds := NewDBStorage(sqlxDB)
 
 	rows := sqlmock.NewRows([]string{"id", "type", "delta", "value"}).
 		AddRow(
@@ -309,7 +309,7 @@ func TestPingInDbStorage(t *testing.T) {
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	ds := NewDbStorage(sqlxDB)
+	ds := NewDBStorage(sqlxDB)
 
 	mock.ExpectPing()
 
@@ -329,7 +329,7 @@ func TestCloseInDbStorage(t *testing.T) {
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	ds := NewDbStorage(sqlxDB)
+	ds := NewDBStorage(sqlxDB)
 
 	mock.ExpectClose()
 

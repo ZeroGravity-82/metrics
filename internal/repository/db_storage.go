@@ -32,7 +32,7 @@ type DBMetric struct {
 	Value sql.NullFloat64
 }
 
-func NewDbStorage(db *sqlx.DB) *DBStorage {
+func NewDBStorage(db *sqlx.DB) *DBStorage {
 	return &DBStorage{db: db}
 }
 
@@ -164,7 +164,7 @@ func (ds *DBStorage) doUpdateMetrics(ctx context.Context, metrics []model.Metric
 
 		DBMetricsMap[m.ID] = DBMetric{ID: m.ID, MType: m.MType, Delta: delta, Value: value}
 		if len(DBMetricsMap) >= updateBatchSize {
-			DBMetricsSlice := buildSortedDbMetricsSlice(DBMetricsMap)
+			DBMetricsSlice := buildSortedDBMetricsSlice(DBMetricsMap)
 			_, err = ds.db.NamedExec("INSERT INTO metric (id, type, delta, value) VALUES (:id, :type, :delta, :value) "+
 				"ON CONFLICT (id) DO UPDATE SET delta = metric.delta + EXCLUDED.delta, value = EXCLUDED.value", DBMetricsSlice)
 			if err != nil {
@@ -174,7 +174,7 @@ func (ds *DBStorage) doUpdateMetrics(ctx context.Context, metrics []model.Metric
 		}
 	}
 	if len(DBMetricsMap) > 0 {
-		DBMetricsSlice := buildSortedDbMetricsSlice(DBMetricsMap)
+		DBMetricsSlice := buildSortedDBMetricsSlice(DBMetricsMap)
 		_, err = ds.db.NamedExec("INSERT INTO metric (id, type, delta, value) VALUES (:id, :type, :delta, :value) "+
 			"ON CONFLICT (id) DO UPDATE SET delta = metric.delta + EXCLUDED.delta, value = EXCLUDED.value", DBMetricsSlice)
 		if err != nil {
@@ -184,7 +184,7 @@ func (ds *DBStorage) doUpdateMetrics(ctx context.Context, metrics []model.Metric
 	return tx.Commit()
 }
 
-func buildSortedDbMetricsSlice(metricsMap map[string]DBMetric) []DBMetric {
+func buildSortedDBMetricsSlice(metricsMap map[string]DBMetric) []DBMetric {
 	metricsIds := make([]string, 0, len(metricsMap))
 	for id := range metricsMap {
 		metricsIds = append(metricsIds, id)

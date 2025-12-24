@@ -637,8 +637,8 @@ func TestPingHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	sqlxDb := sqlx.NewDb(db, "sqlmock")
-	ds := repository.NewDbStorage(sqlxDb)
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	ds := repository.NewDBStorage(sqlxDB)
 	ts := httptest.NewServer(MetricRouter(ds, logger))
 	defer ts.Close()
 

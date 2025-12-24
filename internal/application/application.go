@@ -34,7 +34,7 @@ func NewApplication() *Application {
 		if err != nil {
 			logger.Fatal().Str("error", err.Error()).Msg("Database error")
 		}
-		storage = repository.NewDbStorage(db)
+		storage = repository.NewDBStorage(db)
 	} else if cfg.FileStoragePath != "" {
 		storage, err = repository.NewFileStorage(cfg)
 		if err != nil {
