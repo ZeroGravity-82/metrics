@@ -60,14 +60,12 @@ func isRetryableError(err error) bool {
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case pgerrcode.ConnectionException, pgerrcode.ConnectionDoesNotExist, pgerrcode.ConnectionFailure:
-			fmt.Println("RETRYABLE!")
 			return true
 		}
 	}
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
 		if opErr.Err.Error() == "connect: connection refused" {
-			fmt.Println("RETRYABLE!")
 			return true
 		}
 	}
