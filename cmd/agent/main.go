@@ -10,15 +10,11 @@ import (
 )
 
 func main() {
-	// Logger
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-
-	// Configuration
 	cfg, err := config.GetAgentConfig()
 	if err != nil {
 		logger.Fatal().Str("error", err.Error()).Msg("Config error")
 	}
 
-	// Agent
 	agent.Run(cfg, logger)
 }

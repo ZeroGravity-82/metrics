@@ -18,10 +18,6 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
-const (
-	maxRetries = 3
-)
-
 type metrics struct {
 	memStat     map[string]float64
 	pollCount   int64
@@ -29,6 +25,8 @@ type metrics struct {
 }
 
 func Run(cfg config.AgentConfig, logger zerolog.Logger) {
+	const maxRetries = 3
+
 	m := metrics{}
 	m.memStat = make(map[string]float64)
 
@@ -48,13 +46,18 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 }
 
 func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Duration, error) {
+	const (
+		firstRetryDelay   = 1 * time.Second
+		otherRetriesDelay = 2 * time.Second
+	)
+
 	var retryCount int
 	return func(client *resty.Client, r *resty.Response) (time.Duration, error) {
 		if retryCount == 0 {
 			retryCount++
-			return 1 * time.Second, nil
+			return firstRetryDelay, nil
 		}
-		return 2 * time.Second, nil
+		return otherRetriesDelay, nil
 	}
 }
 
