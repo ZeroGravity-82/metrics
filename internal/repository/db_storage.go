@@ -17,8 +17,10 @@ import (
 )
 
 const (
-	updateBatchSize = 10
-	maxRetries      = 3
+	updateBatchSize   = 10
+	maxRetries        = 3
+	firstRetryDelay   = 1 * time.Second
+	otherRetriesDelay = 2 * time.Second
 )
 
 type DBStorage struct {
@@ -36,23 +38,25 @@ func NewDBStorage(db *sqlx.DB) *DBStorage {
 	return &DBStorage{db: db}
 }
 
-func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
-	var err error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		err = ds.doUpdateMetric(ctx, m)
-		if err == nil {
-			return nil
+func withRetry(fn func() error) func() error {
+	return func() error {
+		var err error
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			err = fn()
+			if err == nil {
+				return nil
+			}
+			if !isRetryableError(err) {
+				return err
+			}
+			if attempt == 0 {
+				time.Sleep(firstRetryDelay)
+			} else {
+				time.Sleep(otherRetriesDelay)
+			}
 		}
-		if !isRetryableError(err) {
-			return err
-		}
-		if attempt == 0 {
-			time.Sleep(1 * time.Second)
-		} else {
-			time.Sleep(2 * time.Second)
-		}
+		return fmt.Errorf("operation failed after %d attempts: %w", maxRetries+1, err)
 	}
-	return fmt.Errorf("failed to update metric after %d attempts: %w", maxRetries+1, err)
 }
 
 func isRetryableError(err error) bool {
@@ -70,6 +74,12 @@ func isRetryableError(err error) bool {
 		}
 	}
 	return false
+}
+
+func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
+	return withRetry(func() error {
+		return ds.doUpdateMetric(ctx, m)
+	})()
 }
 
 func (ds *DBStorage) doUpdateMetric(ctx context.Context, m model.Metrics) error {
@@ -109,22 +119,9 @@ func (ds *DBStorage) doUpdateMetric(ctx context.Context, m model.Metrics) error 
 }
 
 func (ds *DBStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
-	var err error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		err = ds.doUpdateMetrics(ctx, metrics)
-		if err == nil {
-			return nil
-		}
-		if !isRetryableError(err) {
-			return err
-		}
-		if attempt == 0 {
-			time.Sleep(1 * time.Second)
-		} else {
-			time.Sleep(2 * time.Second)
-		}
-	}
-	return fmt.Errorf("failed to update metrics after %d attempts: %w", maxRetries+1, err)
+	return withRetry(func() error {
+		return ds.doUpdateMetrics(ctx, metrics)
+	})()
 }
 
 func (ds *DBStorage) doUpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
@@ -197,22 +194,13 @@ func buildSortedDBMetricsSlice(metricsMap map[string]DBMetric) []DBMetric {
 }
 
 func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error) {
-	var err error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		m, err := ds.doGetMetric(ctx, mType, mName)
-		if err == nil {
-			return m, nil
-		}
-		if !isRetryableError(err) {
-			return model.Metrics{}, err
-		}
-		if attempt == 0 {
-			time.Sleep(1 * time.Second)
-		} else {
-			time.Sleep(2 * time.Second)
-		}
-	}
-	return model.Metrics{}, fmt.Errorf("failed to get metric after %d attempts: %w", maxRetries+1, err)
+	var m model.Metrics
+	err := withRetry(func() error {
+		var err error
+		m, err = ds.doGetMetric(ctx, mType, mName)
+		return err
+	})()
+	return m, err
 }
 
 func (ds *DBStorage) doGetMetric(ctx context.Context, mType, mName string) (model.Metrics, error) {
@@ -241,22 +229,13 @@ func (ds *DBStorage) doGetMetric(ctx context.Context, mType, mName string) (mode
 }
 
 func (ds *DBStorage) GetAll(ctx context.Context) (map[string]model.Metrics, error) {
-	var err error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		metrics, err := ds.doGetAll(ctx)
-		if err == nil {
-			return metrics, nil
-		}
-		if !isRetryableError(err) {
-			return nil, err
-		}
-		if attempt == 0 {
-			time.Sleep(1 * time.Second)
-		} else {
-			time.Sleep(2 * time.Second)
-		}
-	}
-	return nil, fmt.Errorf("failed to get all metric after %d attempts: %w", maxRetries+1, err)
+	var metrics map[string]model.Metrics
+	err := withRetry(func() error {
+		var err error
+		metrics, err = ds.doGetAll(ctx)
+		return err
+	})()
+	return metrics, err
 }
 
 func (ds *DBStorage) doGetAll(ctx context.Context) (map[string]model.Metrics, error) {
