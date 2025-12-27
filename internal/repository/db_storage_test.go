@@ -3,9 +3,14 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"net"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -340,4 +345,98 @@ func TestCloseInDbStorage(t *testing.T) {
 	require.NoError(t, err)
 	err = mock.ExpectationsWereMet()
 	require.NoError(t, err)
+}
+
+func TestWithRetry(t *testing.T) {
+	// Arrange
+	retryableErr := &pgconn.PgError{Code: pgerrcode.ConnectionException}
+	nonRetryableErr := errors.New("non-retryable error")
+
+	tests := []struct {
+		name          string
+		fn            func() error
+		wantErr       error
+		wantCallCount int
+	}{
+		{
+			name: "retryable error",
+			fn: func() error {
+				return retryableErr
+			},
+			wantErr:       fmt.Errorf("operation failed after %d attempts: %w", maxRetries+1, retryableErr),
+			wantCallCount: maxRetries + 1,
+		},
+		{
+			name: "non-retryable error",
+			fn: func() error {
+				return nonRetryableErr
+			},
+			wantErr:       nonRetryableErr,
+			wantCallCount: 1,
+		},
+		{
+			name: "success on first try",
+			fn: func() error {
+				return nil
+			},
+			wantErr:       nil,
+			wantCallCount: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			callCount := 0
+			wrappedFn := func() error {
+				callCount++
+				return tt.fn()
+			}
+
+			// Act
+			err := withRetry(wrappedFn)()
+
+			// Assert
+			assert.Equal(t, tt.wantErr, err)
+			assert.Equal(t, tt.wantCallCount, callCount)
+		})
+	}
+}
+
+func TestIsRetryableError(t *testing.T) {
+	// Arrange
+	tests := []struct {
+		name            string
+		err             error
+		wantIsRetryable bool
+	}{
+		{
+			name:            "retryable PgError",
+			err:             &pgconn.PgError{Code: pgerrcode.ConnectionException},
+			wantIsRetryable: true,
+		},
+		{
+			name:            "non-retryable PgError",
+			err:             &pgconn.PgError{Code: pgerrcode.SyntaxError},
+			wantIsRetryable: false,
+		},
+		{
+			name:            "retryable OpError",
+			err:             &net.OpError{Err: errors.New("connect: connection refused")},
+			wantIsRetryable: true,
+		},
+		{
+			name:            "non-retryable error",
+			err:             errors.New("some other error"),
+			wantIsRetryable: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			isRetryable := isRetryableError(tt.err)
+
+			// Assert
+			assert.Equal(t, tt.wantIsRetryable, isRetryable)
+		})
+	}
 }
