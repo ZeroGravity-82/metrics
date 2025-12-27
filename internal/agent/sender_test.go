@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/rs/zerolog"
@@ -102,7 +103,7 @@ func TestSendReport(t *testing.T) {
 
 func TestAddDefaultSchema(t *testing.T) {
 	// Arrange
-	testTable := []struct {
+	tests := []struct {
 		name          string
 		inputURL      string
 		wantResultURL string
@@ -123,7 +124,7 @@ func TestAddDefaultSchema(t *testing.T) {
 			wantResultURL: "https://192.168.1.101:8081",
 		},
 	}
-	for _, tt := range testTable {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
 			resultURL := addDefaultURLSchema(tt.inputURL)
@@ -132,4 +133,33 @@ func TestAddDefaultSchema(t *testing.T) {
 			assert.Equal(t, tt.wantResultURL, resultURL)
 		})
 	}
+}
+
+func TestRetryAfterFunc(t *testing.T) {
+	// Arrange
+	httpClient := resty.New()
+	response := &resty.Response{}
+
+	retryAfter := retryAfterFunc()
+
+	// Act (first retry)
+	duration, err := retryAfter(httpClient, response)
+
+	// Assert (first retry)
+	require.NoError(t, err)
+	assert.Equal(t, 1*time.Second, duration)
+
+	// Act (second retry)
+	duration, err = retryAfter(httpClient, response)
+
+	// Assert (second retry)
+	require.NoError(t, err)
+	assert.Equal(t, 2*time.Second, duration)
+
+	// Act (subsequent retries)
+	duration, err = retryAfter(httpClient, response)
+
+	// Assert (subsequent retries)
+	require.NoError(t, err)
+	assert.Equal(t, 2*time.Second, duration)
 }
