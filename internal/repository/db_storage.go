@@ -71,7 +71,16 @@ func isRetryableError(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
-		case pgerrcode.ConnectionException, pgerrcode.ConnectionDoesNotExist, pgerrcode.ConnectionFailure:
+		case pgerrcode.SerializationFailure,
+			pgerrcode.DeadlockDetected,
+			pgerrcode.TooManyConnections,
+			pgerrcode.LockNotAvailable,
+			pgerrcode.AdminShutdown,
+			pgerrcode.CannotConnectNow,
+			pgerrcode.ConnectionException,
+			pgerrcode.SQLClientUnableToEstablishSQLConnection,
+			pgerrcode.ConnectionDoesNotExist,
+			pgerrcode.ConnectionFailure:
 			return true
 		}
 	}
