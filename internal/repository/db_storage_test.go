@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jackc/pgerrcode"
@@ -347,7 +348,7 @@ func TestCloseInDbStorage(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestWithRetry(t *testing.T) {
+func TestWithRetry_BackgroundContext(t *testing.T) {
 	// Arrange
 	retryableErr := &pgconn.PgError{Code: pgerrcode.ConnectionException}
 	nonRetryableErr := errors.New("non-retryable error")
@@ -359,15 +360,15 @@ func TestWithRetry(t *testing.T) {
 		wantCallCount int
 	}{
 		{
-			name: "retryable error",
+			name: "can retry function after retryable error",
 			fn: func() error {
 				return retryableErr
 			},
-			wantErr:       fmt.Errorf("operation failed after %d attempts: %w", maxRetries+1, retryableErr),
-			wantCallCount: maxRetries + 1,
+			wantErr:       fmt.Errorf("operation failed after %d attempts: %w", 4, retryableErr),
+			wantCallCount: 4,
 		},
 		{
-			name: "non-retryable error",
+			name: "can not retry function after non-retryable error",
 			fn: func() error {
 				return nonRetryableErr
 			},
@@ -375,7 +376,7 @@ func TestWithRetry(t *testing.T) {
 			wantCallCount: 1,
 		},
 		{
-			name: "success on first try",
+			name: "can not retry function when no errors occurred",
 			fn: func() error {
 				return nil
 			},
@@ -393,13 +394,35 @@ func TestWithRetry(t *testing.T) {
 			}
 
 			// Act
-			err := withRetry(wrappedFn)()
+			err := withRetry(context.Background(), wrappedFn)()
 
 			// Assert
 			assert.Equal(t, tt.wantErr, err)
 			assert.Equal(t, tt.wantCallCount, callCount)
 		})
 	}
+}
+
+func TestWithRetry_ContextWithTimeout(t *testing.T) {
+	// Arrange
+	retryableErr := &pgconn.PgError{Code: pgerrcode.ConnectionException}
+	callCount := 0
+
+	wrappedFn := func() error {
+		callCount++
+		return func() error {
+			return retryableErr
+		}()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+
+	// Act
+	err := withRetry(ctx, wrappedFn)()
+
+	// Assert
+	assert.Equal(t, fmt.Errorf("operation failed on %d attempt: context timeout: %w", 3, retryableErr), err)
+	assert.Equal(t, 3, callCount)
 }
 
 func TestIsRetryableError(t *testing.T) {

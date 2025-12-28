@@ -31,7 +31,7 @@ func NewDBStorage(db *sqlx.DB) *DBStorage {
 	return &DBStorage{db: db}
 }
 
-func withRetry(fn func() error) func() error {
+func withRetry(ctx context.Context, fn func() error) func() error {
 	const (
 		maxRetries        = 3
 		firstRetryDelay   = 1 * time.Second
@@ -48,10 +48,19 @@ func withRetry(fn func() error) func() error {
 			if !isRetryableError(err) {
 				return err
 			}
+			if attempt >= maxRetries {
+				break
+			}
+			var timer *time.Timer
 			if attempt == 0 {
-				time.Sleep(firstRetryDelay)
+				timer = time.NewTimer(firstRetryDelay)
 			} else {
-				time.Sleep(otherRetriesDelay)
+				timer = time.NewTimer(otherRetriesDelay)
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("operation failed on %d attempt: context timeout: %w", attempt+1, err)
+			case <-timer.C:
 			}
 		}
 		return fmt.Errorf("operation failed after %d attempts: %w", maxRetries+1, err)
@@ -76,7 +85,7 @@ func isRetryableError(err error) bool {
 }
 
 func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
-	return withRetry(func() error {
+	return withRetry(ctx, func() error {
 		return ds.doUpdateMetric(ctx, m)
 	})()
 }
@@ -118,7 +127,7 @@ func (ds *DBStorage) doUpdateMetric(ctx context.Context, m model.Metrics) error 
 }
 
 func (ds *DBStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
-	return withRetry(func() error {
+	return withRetry(ctx, func() error {
 		return ds.doUpdateMetrics(ctx, metrics)
 	})()
 }
@@ -196,7 +205,7 @@ func buildSortedDBMetricsSlice(metricsMap map[string]DBMetric) []DBMetric {
 
 func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error) {
 	var m model.Metrics
-	err := withRetry(func() error {
+	err := withRetry(ctx, func() error {
 		var err error
 		m, err = ds.doGetMetric(ctx, mType, mName)
 		return err
@@ -231,7 +240,7 @@ func (ds *DBStorage) doGetMetric(ctx context.Context, mType, mName string) (mode
 
 func (ds *DBStorage) GetAll(ctx context.Context) (map[string]model.Metrics, error) {
 	var metrics map[string]model.Metrics
-	err := withRetry(func() error {
+	err := withRetry(ctx, func() error {
 		var err error
 		metrics, err = ds.doGetAll(ctx)
 		return err
