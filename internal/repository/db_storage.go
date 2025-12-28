@@ -16,13 +16,6 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
-const (
-	updateBatchSize   = 10
-	maxRetries        = 3
-	firstRetryDelay   = 1 * time.Second
-	otherRetriesDelay = 2 * time.Second
-)
-
 type DBStorage struct {
 	db *sqlx.DB
 }
@@ -39,6 +32,12 @@ func NewDBStorage(db *sqlx.DB) *DBStorage {
 }
 
 func withRetry(fn func() error) func() error {
+	const (
+		maxRetries        = 3
+		firstRetryDelay   = 1 * time.Second
+		otherRetriesDelay = 2 * time.Second
+	)
+
 	return func() error {
 		var err error
 		for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -125,6 +124,8 @@ func (ds *DBStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics)
 }
 
 func (ds *DBStorage) doUpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
+	const updateBatchSize = 10
+
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to update metrics: %w", err)
