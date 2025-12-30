@@ -25,10 +25,12 @@ type metrics struct {
 }
 
 func Run(cfg config.AgentConfig, logger zerolog.Logger) {
+	const maxRetries = 3
+
 	m := metrics{}
 	m.memStat = make(map[string]float64)
 
-	httpClient := resty.New()
+	httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
 	lastSentTime := time.Now()
 	for {
 		pollMetrics(&m)
@@ -40,6 +42,22 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 			sendReport(cfg.ServerAddr, &m, httpClient, logger)
 			m.pollCount = 0
 		}
+	}
+}
+
+func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Duration, error) {
+	const (
+		firstRetryDelay   = 1 * time.Second
+		otherRetriesDelay = 2 * time.Second
+	)
+
+	var retryCount int
+	return func(client *resty.Client, r *resty.Response) (time.Duration, error) {
+		if retryCount == 0 {
+			retryCount++
+			return firstRetryDelay, nil
+		}
+		return otherRetriesDelay, nil
 	}
 }
 
@@ -78,35 +96,29 @@ func pollMetrics(m *metrics) {
 }
 
 func sendReport(serverAddr string, metrics *metrics, httpClient *resty.Client, logger zerolog.Logger) {
+	metricsSlice := make([]model.Metrics, 0)
+
 	for name, value := range metrics.memStat {
 		m := model.Metrics{ID: name, MType: model.Gauge, Value: &value}
-		err := sendMetric(serverAddr, m, httpClient)
-		if err != nil {
-			logSendReportError(err, m, logger)
-		}
+		metricsSlice = append(metricsSlice, m)
 	}
+	mPollCount := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &metrics.pollCount}
+	mRandomValue := model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &metrics.randomValue}
+	metricsSlice = append(metricsSlice, mPollCount, mRandomValue)
 
-	m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &metrics.pollCount}
-	err := sendMetric(serverAddr, m, httpClient)
-	if err != nil {
-		logSendReportError(err, m, logger)
-	}
-
-	m = model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &metrics.randomValue}
-	err = sendMetric(serverAddr, m, httpClient)
-	if err != nil {
-		logSendReportError(err, m, logger)
+	if err := sendMetrics(serverAddr, metricsSlice, httpClient); err != nil {
+		logger.Error().Str("error", err.Error()).Msg("Error on sending metrics")
 	}
 }
 
-func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) error {
-	gzipBz, err := marshalAndCompress(m)
+func sendMetrics(serverAddr string, metrics []model.Metrics, httpClient *resty.Client) error {
+	gzipBz, err := marshalAndCompress(metrics)
 	if err != nil {
 		return err
 	}
 
 	serverAddr = addDefaultURLSchema(serverAddr)
-	URL, err := url.JoinPath(serverAddr, "/update")
+	URL, err := url.JoinPath(serverAddr, "/updates")
 	if err != nil {
 		return fmt.Errorf("failed to build URL: %w", err)
 	}
@@ -121,18 +133,18 @@ func sendMetric(serverAddr string, m model.Metrics, httpClient *resty.Client) er
 	return nil
 }
 
-func marshalAndCompress(m model.Metrics) ([]byte, error) {
-	jsonBz, err := json.Marshal(m)
+func marshalAndCompress(metrics []model.Metrics) ([]byte, error) {
+	jsonBz, err := json.Marshal(metrics)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal the metric: %w", err)
+		return nil, fmt.Errorf("failed to marshal metrics: %w", err)
 	}
 	var gzipBuf bytes.Buffer
 	zw := gzip.NewWriter(&gzipBuf)
 	if _, err := zw.Write(jsonBz); err != nil {
-		return nil, fmt.Errorf("failed to gzip the metric: %w", err)
+		return nil, fmt.Errorf("failed to gzip metrics: %w", err)
 	}
 	if err := zw.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close gzip metric writer: %w", err)
+		return nil, fmt.Errorf("failed to close gzip metrics writer: %w", err)
 	}
 	return gzipBuf.Bytes(), nil
 }
@@ -154,11 +166,4 @@ func addDefaultURLSchema(URL string) string {
 		urlPrefix = "https://"
 	}
 	return urlPrefix + host + ":" + port
-}
-
-func logSendReportError(err error, m model.Metrics, logger zerolog.Logger) {
-	logger.Error().
-		Str("metric", fmt.Sprintf("%v", m)).
-		Str("error", err.Error()).
-		Msg("Error on sending metric")
 }

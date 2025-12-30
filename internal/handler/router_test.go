@@ -3,20 +3,23 @@ package handler
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"flag"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"zerogravity-82/metrics/internal/model"
-	"zerogravity-82/metrics/internal/service"
+	"zerogravity-82/metrics/internal/repository"
 )
 
 func int64Pointer(v int64) *int64 {
@@ -28,13 +31,12 @@ func float64Pointer(v float64) *float64 {
 }
 
 func TestUpdateMetricHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
@@ -147,18 +149,19 @@ func TestUpdateMetricHandler(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 	}
-	// Arrange
+	ctx := context.Background()
 	var v1 int64 = 777
 	m1 := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v1}
-	_ = ms.UpdateMetric(m1)
+	_ = ms.UpdateMetric(ctx, m1)
 	var v2 float64 = 12345
 	m2 := model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &v2}
-	_ = ms.UpdateMetric(m2)
+	_ = ms.UpdateMetric(ctx, m2)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			target := fmt.Sprintf("/update/%s/%s/%s", tt.mType, tt.mName, tt.mValue)
-			req, err := http.NewRequest(tt.method, ts.URL+target, http.NoBody)
+			URL, err := url.JoinPath(ts.URL, "/update", tt.mType, tt.mName, tt.mValue)
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, URL, http.NoBody)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 
@@ -176,13 +179,12 @@ func TestUpdateMetricHandler(t *testing.T) {
 }
 
 func TestUpdateHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
@@ -306,15 +308,17 @@ func TestUpdateHandler(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 	}
-	// Arrange
-	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	ctx := context.Background()
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
 			buf, err := compressWithGzip(tt.body)
 			require.NoError(t, err)
-			req, err := http.NewRequest(tt.method, ts.URL+"/update", buf)
+			URL, err := url.JoinPath(ts.URL, "/update")
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, URL, buf)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 			req.Header.Set("Content-Encoding", "gzip")
@@ -345,13 +349,12 @@ func compressWithGzip(body string) (*bytes.Buffer, error) {
 }
 
 func TestGetMetricHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
@@ -412,14 +415,15 @@ func TestGetMetricHandler(t *testing.T) {
 			wantValue:      "12345",
 		},
 	}
-	// Arrange
-	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	ctx := context.Background()
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			target := fmt.Sprintf("/value/%s/%s", tt.mType, tt.mName)
-			req, err := http.NewRequest(tt.method, ts.URL+target, http.NoBody)
+			URL, err := url.JoinPath(ts.URL, "/value", tt.mType, tt.mName)
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, URL, http.NoBody)
 			require.NoError(t, err)
 
 			// Act
@@ -439,13 +443,12 @@ func TestGetMetricHandler(t *testing.T) {
 }
 
 func TestGetHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
@@ -531,15 +534,17 @@ func TestGetHandler(t *testing.T) {
 			wantContentType: "application/json",
 		},
 	}
-	// Arrange
-	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	ctx := context.Background()
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
 			buf, err := compressWithGzip(tt.body)
 			require.NoError(t, err)
-			req, err := http.NewRequest(tt.method, ts.URL+"/value", buf)
+			URL, err := url.JoinPath(ts.URL, "/value")
+			require.NoError(t, err)
+			req, err := http.NewRequest(tt.method, URL, buf)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 			req.Header.Set("Content-Encoding", "gzip")
@@ -562,13 +567,12 @@ func TestGetHandler(t *testing.T) {
 }
 
 func TestGetMetricListHandler(t *testing.T) {
+	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Args = []string{"server"}
 
-	//cfg, err := config.GetServerConfig()
-	//require.NoError(t, err)
-	ms := service.NewMemStorage()
+	ms := repository.NewMemStorage()
 	ts := httptest.NewServer(MetricRouter(ms, logger))
 	defer ts.Close()
 
@@ -588,13 +592,13 @@ func TestGetMetricListHandler(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 	}
-	// Arrange
-	_ = ms.UpdateMetric(model.Metrics{ID: "Alloc", MType: model.Gauge, Value: float64Pointer(310552)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "BuckHashSys", MType: model.Gauge, Value: float64Pointer(3342)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "OtherSys", MType: model.Gauge, Value: float64Pointer(606658)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777777777777777)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(3685246675)})
-	_ = ms.UpdateMetric(model.Metrics{ID: "GCCPUFraction", MType: model.Gauge, Value: float64Pointer(0.00000012345678912345)})
+	ctx := context.Background()
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "Alloc", MType: model.Gauge, Value: float64Pointer(310552)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "BuckHashSys", MType: model.Gauge, Value: float64Pointer(3342)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "OtherSys", MType: model.Gauge, Value: float64Pointer(606658)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777777777777777)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(3685246675)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "GCCPUFraction", MType: model.Gauge, Value: float64Pointer(0.00000012345678912345)})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -623,40 +627,63 @@ func TestGetMetricListHandler(t *testing.T) {
 	}
 }
 
-//
-//func TestStoreMetric(t *testing.T) {
-//	// Arrange
-//	metrics := make(map[string]model.Metrics)
-//	metrics["LastGC"] = model.Metrics{
-//		ID:    "LastGC",
-//		MType: "gauge",
-//		Value: float64Pointer(1257894000000000000),
-//	}
-//	metrics["NumGC"] = model.Metrics{
-//		ID:    "NumGC",
-//		MType: "counter",
-//		Delta: int64Pointer(42),
-//	}
-//	tmpFile, err := os.CreateTemp("", "metrics*.json")
-//	require.NoError(t, err)
-//	defer os.Remove(tmpFile.Name())
-//
-//	// Act
-//	err = storeMetrics(metrics, tmpFile.Name())
-//	require.NoError(t, err)
-//
-//	// Assert
-//	data, err := os.ReadFile(tmpFile.Name())
-//	require.NoError(t, err)
-//
-//	var actualMetricSlice []model.Metrics
-//	err = json.Unmarshal(data, &actualMetricSlice)
-//	require.NoError(t, err)
-//
-//	expectedJSON := `[{"id":"LastGC","type":"gauge","value":1257894000000000000},{"id":"NumGC","type":"counter","delta":42}]`
-//	var expectedMetricSlice []model.Metrics
-//	err = json.Unmarshal([]byte(expectedJSON), &expectedMetricSlice)
-//	require.NoError(t, err)
-//
-//	assert.Equal(t, expectedMetricSlice, actualMetricSlice)
-//}
+func TestPingHandler(t *testing.T) {
+	// Arrange
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	os.Args = []string{"server"}
+
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	require.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	ds := repository.NewDBStorage(sqlxDB)
+	ts := httptest.NewServer(MetricRouter(ds, logger))
+	defer ts.Close()
+
+	tests := []struct {
+		name                 string
+		forceCloseConnection bool
+		wantStatusCode       int
+	}{
+		{
+			name:                 "successful ping",
+			forceCloseConnection: false,
+			wantStatusCode:       http.StatusOK,
+		},
+		{
+			name:                 "database connection failed",
+			forceCloseConnection: true,
+			wantStatusCode:       http.StatusInternalServerError,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			URL, err := url.JoinPath(ts.URL, "/ping")
+			require.NoError(t, err)
+			req, err := http.NewRequest(http.MethodGet, URL, http.NoBody)
+			require.NoError(t, err)
+			mock.ExpectPing()
+			if tt.forceCloseConnection {
+				_ = db.Close()
+			}
+
+			// Act
+			resp, err := ts.Client().Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			// Assert
+			bodyBytes, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatusCode, resp.StatusCode)
+			assert.Empty(t, bodyBytes)
+			if !tt.forceCloseConnection {
+				err = mock.ExpectationsWereMet()
+				require.NoError(t, err)
+			}
+		})
+	}
+}

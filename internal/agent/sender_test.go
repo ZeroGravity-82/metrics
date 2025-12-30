@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/rs/zerolog"
@@ -57,50 +58,52 @@ func TestPollMetrics(t *testing.T) {
 func TestSendReport(t *testing.T) {
 	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	metrics := metrics{}
-	metrics.memStat = make(map[string]float64)
-	pollMetrics(&metrics)
+	sentMetrics := metrics{}
+	sentMetrics.memStat = make(map[string]float64)
+	pollMetrics(&sentMetrics)
 
-	var sentMetrics []string
+	var processedMetricIDs []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Assert
-		assert.Equal(t, "/update", r.URL.Path)
+		assert.Equal(t, "/updates", r.URL.Path)
 
 		zr, err := gzip.NewReader(r.Body)
 		require.NoError(t, err)
 
-		var m model.Metrics
+		var receivedMetrics []model.Metrics
 		dec := json.NewDecoder(zr)
-		err = dec.Decode(&m)
+		err = dec.Decode(&receivedMetrics)
 		require.NoError(t, err)
 
-		assert.NotContains(t, sentMetrics, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
-		sentMetrics = append(sentMetrics, m.ID)
-		switch m.ID {
-		case "PollCount":
-			assert.Equal(t, model.Counter, m.MType)
-			assert.Equal(t, metrics.pollCount, *m.Delta)
-		case "RandomValue":
-			assert.Equal(t, model.Gauge, m.MType)
-			assert.Equal(t, metrics.randomValue, *m.Value)
-		default:
-			assert.Equal(t, model.Gauge, m.MType)
-			assert.Equal(t, metrics.memStat[m.ID], *m.Value)
+		for _, m := range receivedMetrics {
+			assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
+			processedMetricIDs = append(processedMetricIDs, m.ID)
+			switch m.ID {
+			case "PollCount":
+				assert.Equal(t, model.Counter, m.MType)
+				assert.Equal(t, sentMetrics.pollCount, *m.Delta)
+			case "RandomValue":
+				assert.Equal(t, model.Gauge, m.MType)
+				assert.Equal(t, sentMetrics.randomValue, *m.Value)
+			default:
+				assert.Equal(t, model.Gauge, m.MType)
+				assert.Equal(t, sentMetrics.memStat[m.ID], *m.Value)
+			}
 		}
 	}))
 	defer server.Close()
 	httpClient := resty.New()
 
 	// Act
-	sendReport(server.URL, &metrics, httpClient, logger)
+	sendReport(server.URL, &sentMetrics, httpClient, logger)
 
 	// Assert
-	assert.Equal(t, len(metrics.memStat)+2, len(sentMetrics))
+	assert.Equal(t, len(sentMetrics.memStat)+2, len(processedMetricIDs))
 }
 
 func TestAddDefaultSchema(t *testing.T) {
 	// Arrange
-	testTable := []struct {
+	tests := []struct {
 		name          string
 		inputURL      string
 		wantResultURL string
@@ -121,7 +124,7 @@ func TestAddDefaultSchema(t *testing.T) {
 			wantResultURL: "https://192.168.1.101:8081",
 		},
 	}
-	for _, tt := range testTable {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
 			resultURL := addDefaultURLSchema(tt.inputURL)
@@ -130,4 +133,33 @@ func TestAddDefaultSchema(t *testing.T) {
 			assert.Equal(t, tt.wantResultURL, resultURL)
 		})
 	}
+}
+
+func TestRetryAfterFunc(t *testing.T) {
+	// Arrange
+	httpClient := resty.New()
+	response := &resty.Response{}
+
+	retryAfter := retryAfterFunc()
+
+	// Act (first retry)
+	duration, err := retryAfter(httpClient, response)
+
+	// Assert (first retry)
+	require.NoError(t, err)
+	assert.Equal(t, 1*time.Second, duration)
+
+	// Act (second retry)
+	duration, err = retryAfter(httpClient, response)
+
+	// Assert (second retry)
+	require.NoError(t, err)
+	assert.Equal(t, 2*time.Second, duration)
+
+	// Act (subsequent retries)
+	duration, err = retryAfter(httpClient, response)
+
+	// Assert (subsequent retries)
+	require.NoError(t, err)
+	assert.Equal(t, 2*time.Second, duration)
 }

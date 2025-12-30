@@ -2,6 +2,7 @@ package handler
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,13 +18,16 @@ import (
 	"github.com/rs/zerolog"
 
 	"zerogravity-82/metrics/internal/model"
-	"zerogravity-82/metrics/internal/service"
+	"zerogravity-82/metrics/internal/repository"
 )
 
 type Storage interface {
-	UpdateMetric(model.Metrics) error
-	GetMetric(mType, mName string) (model.Metrics, error)
-	GetAll() map[string]model.Metrics
+	UpdateMetric(ctx context.Context, m model.Metrics) error
+	UpdateMetrics(ctx context.Context, metrics []model.Metrics) error
+	GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error)
+	GetAll(ctx context.Context) (map[string]model.Metrics, error)
+	Ping(ctx context.Context) error
+	Close() error
 }
 
 func MetricRouter(s Storage, logger zerolog.Logger) chi.Router {
@@ -43,7 +47,10 @@ func MetricRouter(s Storage, logger zerolog.Logger) chi.Router {
 
 	applicationJSONContentType := middleware.AllowContentType("application/json")
 	r.With(applicationJSONContentType).Post("/update", updateHandler(s, logger))
+	r.With(applicationJSONContentType).Post("/updates", updatesHandler(s, logger))
 	r.With(applicationJSONContentType).Post("/value", getHandler(s, logger))
+
+	r.Get("/ping", pingHandler(s, logger))
 	return r
 }
 
@@ -123,18 +130,19 @@ func updateMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			return
 		}
 
-		err = s.UpdateMetric(m)
+		err = s.UpdateMetric(r.Context(), m)
 		if err != nil {
-			if errors.Is(err, service.ErrMetricNotFound) {
+			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if errors.Is(err, service.ErrInvalidMetricType) {
+			if errors.Is(err, repository.ErrInvalidMetricType) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 			logError(err, "Update metric error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	}
 }
@@ -145,7 +153,7 @@ func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
 	case model.Counter:
 		v, err := strconv.ParseInt(mValue, 10, 64)
 		if err != nil {
-			return model.Metrics{}, fmt.Errorf("%w: %s", service.ErrInvalidMetricValue, mValue)
+			return model.Metrics{}, fmt.Errorf("%w: %s", repository.ErrInvalidMetricValue, mValue)
 		}
 		m.ID = mName
 		m.MType = mType
@@ -153,13 +161,13 @@ func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
 	case model.Gauge:
 		v, err := strconv.ParseFloat(mValue, 64)
 		if err != nil {
-			return model.Metrics{}, fmt.Errorf("%w: %s", service.ErrInvalidMetricValue, mValue)
+			return model.Metrics{}, fmt.Errorf("%w: %s", repository.ErrInvalidMetricValue, mValue)
 		}
 		m.ID = mName
 		m.MType = mType
 		m.Value = &v
 	default:
-		return model.Metrics{}, fmt.Errorf("%w: %s", service.ErrUnsupportedMetricType, mType)
+		return model.Metrics{}, fmt.Errorf("%w: %s", repository.ErrUnsupportedMetricType, mType)
 	}
 	return m, nil
 }
@@ -172,20 +180,48 @@ func updateHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			http.Error(w, fmt.Sprintf("cannot decode request JSON body: %s", err.Error()), http.StatusBadRequest)
 			return
 		}
-		err := s.UpdateMetric(metric)
+		err := s.UpdateMetric(r.Context(), metric)
 		if err != nil {
-			if errors.Is(err, service.ErrMetricNotFound) {
+			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if errors.Is(err, service.ErrUnsupportedMetricType) ||
-				errors.Is(err, service.ErrInvalidMetricType) ||
-				errors.Is(err, service.ErrInvalidMetricValue) {
+			if errors.Is(err, repository.ErrUnsupportedMetricType) ||
+				errors.Is(err, repository.ErrInvalidMetricType) ||
+				errors.Is(err, repository.ErrInvalidMetricValue) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 			logError(err, "Update metric error", logger)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func updatesHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var metrics []model.Metrics
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&metrics); err != nil {
+			http.Error(w, fmt.Sprintf("cannot decode request JSON body: %s", err.Error()), http.StatusBadRequest)
+			return
+		}
+		err := s.UpdateMetrics(r.Context(), metrics)
+		if err != nil {
+			if errors.Is(err, repository.ErrMetricNotFound) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, repository.ErrUnsupportedMetricType) ||
+				errors.Is(err, repository.ErrInvalidMetricType) ||
+				errors.Is(err, repository.ErrInvalidMetricValue) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			logError(err, "Update metrics error", logger)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 	}
 }
@@ -197,8 +233,8 @@ func getMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 
 		switch mType {
 		case model.Counter:
-			metric, err := s.GetMetric(mType, mName)
-			if errors.Is(err, service.ErrMetricNotFound) {
+			metric, err := s.GetMetric(r.Context(), mType, mName)
+			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -207,8 +243,8 @@ func getMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 				logWriteResponseError(err, logger)
 			}
 		case model.Gauge:
-			metric, err := s.GetMetric(mType, mName)
-			if errors.Is(err, service.ErrMetricNotFound) {
+			metric, err := s.GetMetric(r.Context(), mType, mName)
+			if errors.Is(err, repository.ErrMetricNotFound) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -236,8 +272,8 @@ func getHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			return
 		}
 
-		metric, err := s.GetMetric(metric.MType, metric.ID)
-		if errors.Is(err, service.ErrMetricNotFound) {
+		metric, err := s.GetMetric(r.Context(), metric.MType, metric.ID)
+		if errors.Is(err, repository.ErrMetricNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -255,7 +291,12 @@ func getMetricListHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			Counters []model.Metrics
 			Gauges   []model.Metrics
 		}
-		metrics := s.GetAll()
+		metrics, err := s.GetAll(r.Context())
+		if err != nil {
+			logError(err, "Get metric list error", logger)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
 		metricNames := make([]string, 0, len(metrics))
 		for n := range metrics {
 			metricNames = append(metricNames, n)
@@ -316,4 +357,17 @@ func logWriteResponseError(err error, logger zerolog.Logger) {
 
 func logError(err error, msg string, logger zerolog.Logger) {
 	logger.Error().Str("error", err.Error()).Msg(msg)
+}
+
+func pingHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		if err := s.Ping(ctx); err != nil {
+			logError(err, "Storage connection error", logger)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	}
 }

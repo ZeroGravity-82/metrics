@@ -1,9 +1,9 @@
-package service
+package repository
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,21 +11,6 @@ import (
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 )
-
-var ErrMetricNotFound = errors.New("metric not found")
-var ErrInvalidMetricValue = errors.New("invalid metric value")
-var ErrInvalidMetricType = errors.New("invalid metric type")
-var ErrUnsupportedMetricType = errors.New("unsupported metric type")
-
-type MemStorage struct {
-	metrics map[string]model.Metrics
-}
-
-func NewMemStorage() *MemStorage {
-	return &MemStorage{
-		metrics: make(map[string]model.Metrics),
-	}
-}
 
 type FileStorage struct {
 	MemStorage
@@ -55,11 +40,11 @@ func NewFileStorage(cfg config.ServerConfig) (*FileStorage, error) {
 func restoreMetrics(ms MemStorage, file *os.File) error {
 	reader := bufio.NewReader(file)
 	data, err := io.ReadAll(reader)
-	if len(data) == 0 {
-		return nil // файл был только что создан пустым, не из чего восстанавливать метрики
-	}
 	if err != nil {
 		return fmt.Errorf("failed to read metrics from the file: %w", err)
+	}
+	if len(data) == 0 {
+		return nil // файл был только что создан пустым, не из чего восстанавливать метрики
 	}
 	var metricSlice []model.Metrics
 	if err := json.Unmarshal(data, &metricSlice); err != nil {
@@ -71,58 +56,15 @@ func restoreMetrics(ms MemStorage, file *os.File) error {
 	return nil
 }
 
-func (ms *MemStorage) UpdateMetric(m model.Metrics) error {
-	if len(m.ID) == 0 {
-		return fmt.Errorf("%w: empty name", ErrMetricNotFound)
-	}
-	if m.MType == model.Counter && m.Delta == nil ||
-		m.MType == model.Gauge && m.Value == nil {
-		return fmt.Errorf("%w", ErrInvalidMetricValue)
-	}
-
-	switch m.MType {
-	case model.Counter:
-		if _, ok := ms.metrics[m.ID]; !ok {
-			ms.metrics[m.ID] = m
-		} else {
-			existedMetric := ms.metrics[m.ID]
-			if m.MType != existedMetric.MType {
-				return fmt.Errorf("%w: %s", ErrInvalidMetricType, m.MType)
-			}
-			*existedMetric.Delta += *m.Delta
-			ms.metrics[m.ID] = existedMetric
-		}
-		return nil
-	case model.Gauge:
-		if existedMetric, ok := ms.metrics[m.ID]; ok {
-			if m.MType != existedMetric.MType {
-				return fmt.Errorf("%w: %s", ErrInvalidMetricType, m.MType)
-			}
-		}
-		ms.metrics[m.ID] = m
-		return nil
-	default:
-		return fmt.Errorf("%w: %s", ErrUnsupportedMetricType, m.MType)
-	}
-}
-
-func (ms *MemStorage) GetMetric(mType, mName string) (model.Metrics, error) {
-	if v, ok := ms.metrics[mName]; !ok || v.MType != mType {
-		return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
-	} else {
-		return v, nil
-	}
-}
-
-func (ms *MemStorage) GetAll() map[string]model.Metrics {
-	return ms.metrics
-}
-
-func (fs *FileStorage) UpdateMetric(m model.Metrics) error {
-	if err := fs.MemStorage.UpdateMetric(m); err != nil {
+func (fs *FileStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
+	if err := fs.MemStorage.UpdateMetric(ctx, m); err != nil {
 		return err
 	}
-	return storeMetrics(fs.MemStorage.GetAll(), fs.file)
+	metrics, err := fs.MemStorage.GetAll(ctx)
+	if err != nil {
+		return err
+	}
+	return storeMetrics(metrics, fs.file)
 }
 
 func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
@@ -150,6 +92,21 @@ func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
 		return fmt.Errorf("failed to flush to the file remaining metrics: %w", err)
 	}
 
+	return nil
+}
+
+func (fs *FileStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
+	if err := fs.MemStorage.UpdateMetrics(ctx, metrics); err != nil {
+		return err
+	}
+	metricsMap, err := fs.MemStorage.GetAll(ctx)
+	if err != nil {
+		return err
+	}
+	return storeMetrics(metricsMap, fs.file)
+}
+
+func (fs *FileStorage) Ping(_ context.Context) error {
 	return nil
 }
 

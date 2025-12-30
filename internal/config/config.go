@@ -10,12 +10,11 @@ import (
 )
 
 const (
-	defaultServerAddr      = "localhost:8080"
-	defaultReportInterval  = 10
-	defaultPollInterval    = 2
-	defaultStoreInterval   = 300
-	defaultFileStoragePath = "/tmp/metrics.json"
-	defaultRestore         = false
+	defaultServerAddr     = "localhost:8080"
+	defaultReportInterval = 10
+	defaultPollInterval   = 2
+	defaultStoreInterval  = 300
+	defaultRestore        = false
 )
 
 type AgentConfig struct {
@@ -28,14 +27,16 @@ type ServerConfig struct {
 	StoreInterval   int
 	FileStoragePath string
 	Restore         bool
+	DatabaseDSN     string
 }
 
 func GetServerConfig() (ServerConfig, error) {
 	var serverAddrFlag string
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
 	storeIntervalFlag := flag.Int("i", defaultStoreInterval, "интервал сохранения метрик на диск")
-	fileStoragePathFlag := flag.String("f", defaultFileStoragePath, "путь до файла с метриками")
+	fileStoragePathFlag := flag.String("f", "", "путь до файла с метриками")
 	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
+	databaseDSNFlag := flag.String("d", "", "строка подключения к БД")
 	flag.Parse()
 
 	cfg := ServerConfig{}
@@ -52,11 +53,16 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	databaseDSN, err := getDatabaseDSN(databaseDSNFlag)
+	if err != nil {
+		return cfg, err
+	}
 
 	cfg.ServerAddr = serverAddr
 	cfg.StoreInterval = storeInterval
 	cfg.FileStoragePath = fileStoragePath
 	cfg.Restore = restore
+	cfg.DatabaseDSN = databaseDSN
 	return cfg, nil
 }
 
@@ -90,6 +96,14 @@ func getRestore(restoreFlag *bool) (bool, error) {
 		return false, fmt.Errorf("failed to convert RESTORE environment variable to boolean: %w", err)
 	}
 	return restoreEnv, nil
+}
+
+func getDatabaseDSN(databaseDSNFlag *string) (string, error) {
+	databaseDSNEnvStr, ok := os.LookupEnv("DATABASE_DSN")
+	if !ok {
+		return *databaseDSNFlag, nil
+	}
+	return databaseDSNEnvStr, nil
 }
 
 func getServerAddr(serverAddrFlag string) (string, error) {
