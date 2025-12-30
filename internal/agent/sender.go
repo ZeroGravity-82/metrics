@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -39,7 +40,7 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 
 		if time.Since(lastSentTime) >= time.Duration(cfg.ReportInterval)*time.Second {
 			lastSentTime = time.Now()
-			sendReport(cfg.ServerAddr, &m, httpClient, logger)
+			sendReport(cfg.ServerAddr, cfg.Key, &m, httpClient, logger)
 			m.pollCount = 0
 		}
 	}
@@ -95,7 +96,7 @@ func pollMetrics(m *metrics) {
 	m.randomValue = float64(rand.Uint32())
 }
 
-func sendReport(serverAddr string, metrics *metrics, httpClient *resty.Client, logger zerolog.Logger) {
+func sendReport(serverAddr, key string, metrics *metrics, httpClient *resty.Client, logger zerolog.Logger) {
 	metricsSlice := make([]model.Metrics, 0)
 
 	for name, value := range metrics.memStat {
@@ -106,13 +107,17 @@ func sendReport(serverAddr string, metrics *metrics, httpClient *resty.Client, l
 	mRandomValue := model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &metrics.randomValue}
 	metricsSlice = append(metricsSlice, mPollCount, mRandomValue)
 
-	if err := sendMetrics(serverAddr, metricsSlice, httpClient); err != nil {
+	if err := sendMetrics(serverAddr, key, metricsSlice, httpClient); err != nil {
 		logger.Error().Str("error", err.Error()).Msg("Error on sending metrics")
 	}
 }
 
-func sendMetrics(serverAddr string, metrics []model.Metrics, httpClient *resty.Client) error {
-	gzipBz, err := marshalAndCompress(metrics)
+func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *resty.Client) error {
+	jsonBz, err := marshal(metrics)
+	if err != nil {
+		return err
+	}
+	gzipBz, err := compress(jsonBz)
 	if err != nil {
 		return err
 	}
@@ -122,25 +127,33 @@ func sendMetrics(serverAddr string, metrics []model.Metrics, httpClient *resty.C
 	if err != nil {
 		return fmt.Errorf("failed to build URL: %w", err)
 	}
-	_, err = httpClient.R().
+	r := httpClient.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
-		SetBody(gzipBz).
-		Post(URL)
+		SetBody(gzipBz)
+	if key != "" {
+		hashBz := sha256.Sum256(jsonBz)
+		r.SetHeader("HashSHA256", fmt.Sprintf("%x", hashBz))
+	}
+	_, err = r.Post(URL)
 	if err != nil {
 		return fmt.Errorf("failed to send the request: %w", err)
 	}
 	return nil
 }
 
-func marshalAndCompress(metrics []model.Metrics) ([]byte, error) {
+func marshal(metrics []model.Metrics) ([]byte, error) {
 	jsonBz, err := json.Marshal(metrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal metrics: %w", err)
 	}
+	return jsonBz, nil
+}
+
+func compress(data []byte) ([]byte, error) {
 	var gzipBuf bytes.Buffer
 	zw := gzip.NewWriter(&gzipBuf)
-	if _, err := zw.Write(jsonBz); err != nil {
+	if _, err := zw.Write(data); err != nil {
 		return nil, fmt.Errorf("failed to gzip metrics: %w", err)
 	}
 	if err := zw.Close(); err != nil {

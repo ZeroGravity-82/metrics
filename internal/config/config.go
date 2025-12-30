@@ -21,6 +21,7 @@ type AgentConfig struct {
 	ServerAddr     string
 	ReportInterval int
 	PollInterval   int
+	Key            string
 }
 type ServerConfig struct {
 	ServerAddr      string
@@ -28,6 +29,7 @@ type ServerConfig struct {
 	FileStoragePath string
 	Restore         bool
 	DatabaseDSN     string
+	Key             string
 }
 
 func GetServerConfig() (ServerConfig, error) {
@@ -37,6 +39,7 @@ func GetServerConfig() (ServerConfig, error) {
 	fileStoragePathFlag := flag.String("f", "", "путь до файла с метриками")
 	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
 	databaseDSNFlag := flag.String("d", "", "строка подключения к БД")
+	keyFlag := flag.String("k", "", "ключ для подписи запросов")
 	flag.Parse()
 
 	cfg := ServerConfig{}
@@ -57,12 +60,17 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	key, err := getKey(keyFlag)
+	if err != nil {
+		return cfg, err
+	}
 
 	cfg.ServerAddr = serverAddr
 	cfg.StoreInterval = storeInterval
 	cfg.FileStoragePath = fileStoragePath
 	cfg.Restore = restore
 	cfg.DatabaseDSN = databaseDSN
+	cfg.Key = key
 	return cfg, nil
 }
 
@@ -147,6 +155,7 @@ func GetAgentConfig() (AgentConfig, error) {
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
 	reportIntervalFlag := flag.Int("r", defaultReportInterval, "частота отправки метрик на сервер")
 	pollIntervalFlag := flag.Int("p", defaultPollInterval, "частота опроса метрик из пакета runtime")
+	keyFlag := flag.String("k", "", "ключ для подписи запросов")
 	flag.Parse()
 
 	cfg := AgentConfig{}
@@ -162,10 +171,15 @@ func GetAgentConfig() (AgentConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	key, err := getKey(keyFlag)
+	if err != nil {
+		return cfg, err
+	}
 
 	cfg.ServerAddr = serverAddr
 	cfg.ReportInterval = reportInterval
 	cfg.PollInterval = pollInterval
+	cfg.Key = key
 	return cfg, nil
 }
 
@@ -191,4 +205,12 @@ func getPollInterval(pollIntervalFlag *int) (int, error) {
 		return 0, fmt.Errorf("failed to convert POLL_INTERVAL environment variable to integer: %w", err)
 	}
 	return pollIntervalEnv, nil
+}
+
+func getKey(keyFlag *string) (string, error) {
+	keyEnvStr, ok := os.LookupEnv("KEY")
+	if !ok {
+		return *keyFlag, nil
+	}
+	return keyEnvStr, nil
 }

@@ -37,7 +37,8 @@ func TestUpdateMetricHandler(t *testing.T) {
 	os.Args = []string{"server"}
 
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	key := ""
+	ts := httptest.NewServer(MetricRouter(ms, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -185,7 +186,8 @@ func TestUpdateHandler(t *testing.T) {
 	os.Args = []string{"server"}
 
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	key := ""
+	ts := httptest.NewServer(MetricRouter(ms, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -355,7 +357,8 @@ func TestGetMetricHandler(t *testing.T) {
 	os.Args = []string{"server"}
 
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	key := ""
+	ts := httptest.NewServer(MetricRouter(ms, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -449,7 +452,8 @@ func TestGetHandler(t *testing.T) {
 	os.Args = []string{"server"}
 
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	key := ""
+	ts := httptest.NewServer(MetricRouter(ms, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -573,7 +577,8 @@ func TestGetMetricListHandler(t *testing.T) {
 	os.Args = []string{"server"}
 
 	ms := repository.NewMemStorage()
-	ts := httptest.NewServer(MetricRouter(ms, logger))
+	key := ""
+	ts := httptest.NewServer(MetricRouter(ms, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -639,7 +644,8 @@ func TestPingHandler(t *testing.T) {
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	ds := repository.NewDBStorage(sqlxDB)
-	ts := httptest.NewServer(MetricRouter(ds, logger))
+	key := ""
+	ts := httptest.NewServer(MetricRouter(ds, key, logger))
 	defer ts.Close()
 
 	tests := []struct {

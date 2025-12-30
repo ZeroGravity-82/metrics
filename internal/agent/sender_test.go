@@ -62,43 +62,71 @@ func TestSendReport(t *testing.T) {
 	sentMetrics.memStat = make(map[string]float64)
 	pollMetrics(&sentMetrics)
 
-	var processedMetricIDs []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Assert
-		assert.Equal(t, "/updates", r.URL.Path)
+	tests := []struct {
+		name                string
+		key                 string
+		wantSignatureHeader bool
+	}{
+		{
+			name:                "with signature",
+			key:                 "secret",
+			wantSignatureHeader: true,
+		},
+		{
+			name:                "without signature",
+			key:                 "",
+			wantSignatureHeader: false,
+		},
+	}
 
-		zr, err := gzip.NewReader(r.Body)
-		require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			var processedMetricIDs []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Assert
+				assert.Equal(t, "/updates", r.URL.Path)
 
-		var receivedMetrics []model.Metrics
-		dec := json.NewDecoder(zr)
-		err = dec.Decode(&receivedMetrics)
-		require.NoError(t, err)
+				if tt.wantSignatureHeader {
+					assert.NotEmpty(t, r.Header.Get("HashSHA256"))
+				} else {
+					assert.Empty(t, r.Header.Get("HashSHA256"))
+				}
 
-		for _, m := range receivedMetrics {
-			assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
-			processedMetricIDs = append(processedMetricIDs, m.ID)
-			switch m.ID {
-			case "PollCount":
-				assert.Equal(t, model.Counter, m.MType)
-				assert.Equal(t, sentMetrics.pollCount, *m.Delta)
-			case "RandomValue":
-				assert.Equal(t, model.Gauge, m.MType)
-				assert.Equal(t, sentMetrics.randomValue, *m.Value)
-			default:
-				assert.Equal(t, model.Gauge, m.MType)
-				assert.Equal(t, sentMetrics.memStat[m.ID], *m.Value)
-			}
-		}
-	}))
-	defer server.Close()
-	httpClient := resty.New()
+				zr, err := gzip.NewReader(r.Body)
+				require.NoError(t, err)
 
-	// Act
-	sendReport(server.URL, &sentMetrics, httpClient, logger)
+				var receivedMetrics []model.Metrics
+				dec := json.NewDecoder(zr)
+				err = dec.Decode(&receivedMetrics)
+				require.NoError(t, err)
 
-	// Assert
-	assert.Equal(t, len(sentMetrics.memStat)+2, len(processedMetricIDs))
+				for _, m := range receivedMetrics {
+					assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
+					processedMetricIDs = append(processedMetricIDs, m.ID)
+					switch m.ID {
+					case "PollCount":
+						assert.Equal(t, model.Counter, m.MType)
+						assert.Equal(t, sentMetrics.pollCount, *m.Delta)
+					case "RandomValue":
+						assert.Equal(t, model.Gauge, m.MType)
+						assert.Equal(t, sentMetrics.randomValue, *m.Value)
+					default:
+						assert.Equal(t, model.Gauge, m.MType)
+						assert.Equal(t, sentMetrics.memStat[m.ID], *m.Value)
+					}
+				}
+			}))
+			defer server.Close()
+			httpClient := resty.New()
+
+			// Act
+			sendReport(server.URL, tt.key, &sentMetrics, httpClient, logger)
+
+			// Assert
+			assert.Equal(t, len(sentMetrics.memStat)+2, len(processedMetricIDs))
+		})
+	}
 }
 
 func TestAddDefaultSchema(t *testing.T) {
