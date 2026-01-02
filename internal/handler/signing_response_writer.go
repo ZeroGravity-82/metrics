@@ -10,21 +10,24 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type (
-	signingResponseWriter struct {
-		http.ResponseWriter
-		body   *bytes.Buffer
-		key    string
-		logger zerolog.Logger
-	}
-)
+// signingResponseWriter реализует интерфейс http.ResponseWriter и позволяет прозрачно для сервера подписывать
+// передаваемые данные, выставляя HTTP-заголовок HashSHA256.
+type signingResponseWriter struct {
+	http.ResponseWriter
+	body        *bytes.Buffer
+	key         string
+	logger      zerolog.Logger
+	statusCode  int
+	wroteHeader bool
+}
 
-func newSigningWriter(w http.ResponseWriter, key string, logger zerolog.Logger) *signingResponseWriter {
+func newSigningResponseWriter(w http.ResponseWriter, key string, logger zerolog.Logger) *signingResponseWriter {
 	return &signingResponseWriter{
 		ResponseWriter: w,
 		body:           new(bytes.Buffer),
 		key:            key,
 		logger:         logger,
+		statusCode:     http.StatusOK,
 	}
 }
 
@@ -33,8 +36,11 @@ func (w *signingResponseWriter) Write(b []byte) (int, error) {
 }
 
 func (w *signingResponseWriter) WriteHeader(statusCode int) {
+	if w.wroteHeader {
+		return
+	}
 	bodyBz := w.body.Bytes()
-	if len(bodyBz) > 0 {
+	if len(bodyBz) > 0 && len(w.key) > 0 {
 		h := hmac.New(sha256.New, []byte(w.key))
 		h.Write(bodyBz)
 		signature := hex.EncodeToString(h.Sum(nil))
@@ -45,4 +51,5 @@ func (w *signingResponseWriter) WriteHeader(statusCode int) {
 	if err != nil {
 		w.logger.Error().Str("error", err.Error()).Msg("Error on sending signed response")
 	}
+	w.wroteHeader = true
 }

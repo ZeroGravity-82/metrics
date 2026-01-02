@@ -71,7 +71,7 @@ func withLogging(logger zerolog.Logger) func(next http.Handler) http.Handler {
 				status: http.StatusOK,
 				size:   0,
 			}
-			lw := newLoggingWriter(w, responseData)
+			lw := newLoggingResponseWriter(w, responseData)
 			next.ServeHTTP(lw, r)
 
 			duration := time.Since(start)
@@ -114,7 +114,7 @@ func withSignature(key string, logger zerolog.Logger) func(next http.Handler) ht
 			r.Body = io.NopCloser(bytes.NewBuffer(body))
 			ow := w
 			if key != "" {
-				ow = newSigningWriter(w, key, logger)
+				ow = newSigningResponseWriter(w, key, logger)
 			}
 			next.ServeHTTP(ow, r)
 		})
@@ -145,16 +145,15 @@ func withGzip(logger zerolog.Logger) func(next http.Handler) http.Handler {
 			acceptEncoding := r.Header.Get("Accept-Encoding")
 			supportGzip := strings.Contains(acceptEncoding, "gzip")
 			if supportGzip {
-				cw := newCompressWriter(w)
+				cw := newCompressResponseWriter(w)
 				defer cw.Close()
-				cw.Header().Set("Content-Encoding", "gzip")
 				ow = cw
 			}
 
 			contentEncoding := r.Header.Get("Content-Encoding")
 			sendsGzip := strings.Contains(contentEncoding, "gzip")
 			if sendsGzip {
-				cr, err := newCompressReader(r.Body)
+				cr, err := newCompressRequestReader(r.Body)
 				if err != nil {
 					if errors.Is(err, gzip.ErrChecksum) || errors.Is(err, gzip.ErrHeader) {
 						ow.WriteHeader(http.StatusBadRequest)

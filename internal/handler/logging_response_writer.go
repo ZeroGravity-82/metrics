@@ -6,10 +6,13 @@ import (
 )
 
 type (
+	// responseData хранит аналитические данные HTTP-ответа
 	responseData struct {
 		status int
 		size   int
 	}
+	// loggingResponseWriter реализует интерфейс http.ResponseWriter и позволяет прозрачно для сервера собирать
+	// аналитические данные HTTP-ответов.
 	loggingResponseWriter struct {
 		http.ResponseWriter
 		responseData *responseData
@@ -18,7 +21,7 @@ type (
 	}
 )
 
-func newLoggingWriter(w http.ResponseWriter, responseData *responseData) *loggingResponseWriter {
+func newLoggingResponseWriter(w http.ResponseWriter, responseData *responseData) *loggingResponseWriter {
 	return &loggingResponseWriter{
 		ResponseWriter: w,
 		responseData:   responseData,
@@ -39,9 +42,10 @@ func (w *loggingResponseWriter) Write(b []byte) (int, error) {
 }
 
 func (w *loggingResponseWriter) WriteHeader(statusCode int) {
-	if !w.wroteHeader {
-		w.wroteHeader = true
-		w.ResponseWriter.WriteHeader(statusCode)
-		w.responseData.status = statusCode
+	if w.wroteHeader {
+		return
 	}
+	w.responseData.status = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+	w.wroteHeader = true
 }
