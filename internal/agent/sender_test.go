@@ -19,48 +19,47 @@ import (
 
 func TestPollMetrics(t *testing.T) {
 	// Arrange
-	m := metrics{}
-	m.memStat = make(map[string]float64)
+	m := newMetrics()
 
 	// Act
-	pollMetrics(&m)
+	pollMetrics(m)
 
 	// Assert
-	assert.Contains(t, m.memStat, "Alloc")
-	assert.Contains(t, m.memStat, "BuckHashSys")
-	assert.Contains(t, m.memStat, "Frees")
-	assert.Contains(t, m.memStat, "GCCPUFraction")
-	assert.Contains(t, m.memStat, "GCSys")
-	assert.Contains(t, m.memStat, "HeapAlloc")
-	assert.Contains(t, m.memStat, "HeapIdle")
-	assert.Contains(t, m.memStat, "HeapInuse")
-	assert.Contains(t, m.memStat, "HeapObjects")
-	assert.Contains(t, m.memStat, "HeapReleased")
-	assert.Contains(t, m.memStat, "HeapSys")
-	assert.Contains(t, m.memStat, "LastGC")
-	assert.Contains(t, m.memStat, "Lookups")
-	assert.Contains(t, m.memStat, "MCacheInuse")
-	assert.Contains(t, m.memStat, "MCacheSys")
-	assert.Contains(t, m.memStat, "MSpanInuse")
-	assert.Contains(t, m.memStat, "MSpanSys")
-	assert.Contains(t, m.memStat, "Mallocs")
-	assert.Contains(t, m.memStat, "NextGC")
-	assert.Contains(t, m.memStat, "NumForcedGC")
-	assert.Contains(t, m.memStat, "NumGC")
-	assert.Contains(t, m.memStat, "OtherSys")
-	assert.Contains(t, m.memStat, "PauseTotalNs")
-	assert.Contains(t, m.memStat, "StackInuse")
-	assert.Contains(t, m.memStat, "StackSys")
-	assert.Contains(t, m.memStat, "Sys")
-	assert.Contains(t, m.memStat, "TotalAlloc")
+	assert.Contains(t, m.data, "Alloc")
+	assert.Contains(t, m.data, "BuckHashSys")
+	assert.Contains(t, m.data, "Frees")
+	assert.Contains(t, m.data, "GCCPUFraction")
+	assert.Contains(t, m.data, "GCSys")
+	assert.Contains(t, m.data, "HeapAlloc")
+	assert.Contains(t, m.data, "HeapIdle")
+	assert.Contains(t, m.data, "HeapInuse")
+	assert.Contains(t, m.data, "HeapObjects")
+	assert.Contains(t, m.data, "HeapReleased")
+	assert.Contains(t, m.data, "HeapSys")
+	assert.Contains(t, m.data, "LastGC")
+	assert.Contains(t, m.data, "Lookups")
+	assert.Contains(t, m.data, "MCacheInuse")
+	assert.Contains(t, m.data, "MCacheSys")
+	assert.Contains(t, m.data, "MSpanInuse")
+	assert.Contains(t, m.data, "MSpanSys")
+	assert.Contains(t, m.data, "Mallocs")
+	assert.Contains(t, m.data, "NextGC")
+	assert.Contains(t, m.data, "NumForcedGC")
+	assert.Contains(t, m.data, "NumGC")
+	assert.Contains(t, m.data, "OtherSys")
+	assert.Contains(t, m.data, "PauseTotalNs")
+	assert.Contains(t, m.data, "StackInuse")
+	assert.Contains(t, m.data, "StackSys")
+	assert.Contains(t, m.data, "Sys")
+	assert.Contains(t, m.data, "TotalAlloc")
+	assert.Contains(t, m.data, "RandomValue")
 }
 
 func TestSendReport(t *testing.T) {
 	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	sentMetrics := metrics{}
-	sentMetrics.memStat = make(map[string]float64)
-	pollMetrics(&sentMetrics)
+	sentMetrics := newMetrics()
+	pollMetrics(sentMetrics)
 
 	tests := []struct {
 		name                string
@@ -104,27 +103,17 @@ func TestSendReport(t *testing.T) {
 				for _, m := range receivedMetrics {
 					assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
 					processedMetricIDs = append(processedMetricIDs, m.ID)
-					switch m.ID {
-					case "PollCount":
-						assert.Equal(t, model.Counter, m.MType)
-						assert.Equal(t, sentMetrics.pollCount, *m.Delta)
-					case "RandomValue":
-						assert.Equal(t, model.Gauge, m.MType)
-						assert.Equal(t, sentMetrics.randomValue, *m.Value)
-					default:
-						assert.Equal(t, model.Gauge, m.MType)
-						assert.Equal(t, sentMetrics.memStat[m.ID], *m.Value)
-					}
+					assert.Equal(t, sentMetrics.data[m.ID], m)
 				}
 			}))
 			defer server.Close()
 			httpClient := resty.New()
 
 			// Act
-			sendReport(server.URL, tt.key, &sentMetrics, httpClient, logger)
+			sendReport(server.URL, tt.key, sentMetrics.data, httpClient, logger)
 
 			// Assert
-			assert.Equal(t, len(sentMetrics.memStat)+2, len(processedMetricIDs))
+			assert.Equal(t, len(sentMetrics.data), len(processedMetricIDs))
 		})
 	}
 }

@@ -10,40 +10,101 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/rs/zerolog"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 )
 
 type metrics struct {
-	memStat     map[string]float64
-	pollCount   int64
-	randomValue float64
+	sync.Mutex
+	data map[string]model.Metrics
+}
+
+func newMetrics() *metrics {
+	m := metrics{
+		data: make(map[string]model.Metrics),
+	}
+	m.resetPollCount()
+	return &m
+}
+
+func (m *metrics) resetPollCount() {
+	var v int64
+	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
+}
+
+func (m *metrics) incrementPollCount() {
+	v := *m.data["PollCount"].Delta
+	v++
+	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
 }
 
 func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 	const maxRetries = 3
+	m := newMetrics()
+	var wg sync.WaitGroup
 
-	m := metrics{}
-	m.memStat = make(map[string]float64)
-
-	httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
-	lastSentTime := time.Now()
-	for {
-		pollMetrics(&m)
-		m.pollCount++
-		time.Sleep(time.Duration(cfg.PollInterval) * time.Second)
-
-		if time.Since(lastSentTime) >= time.Duration(cfg.ReportInterval)*time.Second {
-			lastSentTime = time.Now()
-			sendReport(cfg.ServerAddr, cfg.Key, &m, httpClient, logger)
-			m.pollCount = 0
+	pollInterval := time.Duration(cfg.PollInterval) * time.Second
+	pollTicker := time.NewTicker(pollInterval)
+	wg.Add(1)
+	go func() {
+		defer pollTicker.Stop()
+		defer wg.Done()
+		for {
+			select {
+			case <-pollTicker.C:
+				m.Lock()
+				pollMetrics(m)
+				m.incrementPollCount()
+				m.Unlock()
+			}
 		}
-	}
+	}()
+	pollUtilTicker := time.NewTicker(pollInterval)
+	wg.Add(1)
+	go func() {
+		defer pollUtilTicker.Stop()
+		defer wg.Done()
+		for {
+			select {
+			case <-pollUtilTicker.C:
+				m.Lock()
+				pollUtilMetrics(m, logger)
+				m.Unlock()
+			}
+		}
+	}()
+
+	reportTicker := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
+	wg.Add(1)
+	go func() {
+		defer reportTicker.Stop()
+		defer wg.Done()
+		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
+		for {
+			select {
+			case <-reportTicker.C:
+				m.Lock()
+				mDataCopy := make(map[string]model.Metrics, len(m.data))
+				for n, v := range m.data {
+					mDataCopy[n] = v
+				}
+				m.resetPollCount()
+				m.Unlock()
+
+				sendReport(cfg.ServerAddr, cfg.Key, mDataCopy, httpClient, logger)
+			}
+		}
+	}()
+
+	wg.Wait()
 }
 
 func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Duration, error) {
@@ -66,47 +127,73 @@ func pollMetrics(m *metrics) {
 	memStats := runtime.MemStats{}
 	runtime.ReadMemStats(&memStats)
 
-	m.memStat["Alloc"] = float64(memStats.Alloc)
-	m.memStat["BuckHashSys"] = float64(memStats.BuckHashSys)
-	m.memStat["Frees"] = float64(memStats.Frees)
-	m.memStat["GCCPUFraction"] = memStats.GCCPUFraction
-	m.memStat["GCSys"] = float64(memStats.GCSys)
-	m.memStat["HeapAlloc"] = float64(memStats.HeapAlloc)
-	m.memStat["HeapIdle"] = float64(memStats.HeapIdle)
-	m.memStat["HeapInuse"] = float64(memStats.HeapInuse)
-	m.memStat["HeapObjects"] = float64(memStats.HeapObjects)
-	m.memStat["HeapReleased"] = float64(memStats.HeapReleased)
-	m.memStat["HeapSys"] = float64(memStats.HeapSys)
-	m.memStat["LastGC"] = float64(memStats.LastGC)
-	m.memStat["Lookups"] = float64(memStats.Lookups)
-	m.memStat["MCacheInuse"] = float64(memStats.MCacheInuse)
-	m.memStat["MCacheSys"] = float64(memStats.MCacheSys)
-	m.memStat["MSpanInuse"] = float64(memStats.MSpanInuse)
-	m.memStat["MSpanSys"] = float64(memStats.MSpanSys)
-	m.memStat["Mallocs"] = float64(memStats.Mallocs)
-	m.memStat["NextGC"] = float64(memStats.NextGC)
-	m.memStat["NumForcedGC"] = float64(memStats.NumForcedGC)
-	m.memStat["NumGC"] = float64(memStats.NumGC)
-	m.memStat["OtherSys"] = float64(memStats.OtherSys)
-	m.memStat["PauseTotalNs"] = float64(memStats.PauseTotalNs)
-	m.memStat["StackInuse"] = float64(memStats.StackInuse)
-	m.memStat["StackSys"] = float64(memStats.StackSys)
-	m.memStat["Sys"] = float64(memStats.Sys)
-	m.memStat["TotalAlloc"] = float64(memStats.TotalAlloc)
-	m.randomValue = float64(rand.Uint32())
+	m.data["Alloc"] = convertUint64ToGaugeMetric("Alloc", memStats.Alloc)
+	m.data["BuckHashSys"] = convertUint64ToGaugeMetric("BuckHashSys", memStats.BuckHashSys)
+	m.data["Frees"] = convertUint64ToGaugeMetric("Frees", memStats.Frees)
+	m.data["GCCPUFraction"] = convertFloat64ToGaugeMetric("GCCPUFraction", memStats.GCCPUFraction)
+	m.data["GCSys"] = convertUint64ToGaugeMetric("GCSys", memStats.GCSys)
+	m.data["HeapAlloc"] = convertUint64ToGaugeMetric("HeapAlloc", memStats.HeapAlloc)
+	m.data["HeapIdle"] = convertUint64ToGaugeMetric("HeapIdle", memStats.HeapIdle)
+	m.data["HeapInuse"] = convertUint64ToGaugeMetric("HeapInuse", memStats.HeapInuse)
+	m.data["HeapObjects"] = convertUint64ToGaugeMetric("HeapObjects", memStats.HeapObjects)
+	m.data["HeapReleased"] = convertUint64ToGaugeMetric("HeapReleased", memStats.HeapReleased)
+	m.data["HeapSys"] = convertUint64ToGaugeMetric("HeapSys", memStats.HeapSys)
+	m.data["LastGC"] = convertUint64ToGaugeMetric("LastGC", memStats.LastGC)
+	m.data["Lookups"] = convertUint64ToGaugeMetric("Lookups", memStats.Lookups)
+	m.data["MCacheInuse"] = convertUint64ToGaugeMetric("MCacheInuse", memStats.MCacheInuse)
+	m.data["MCacheSys"] = convertUint64ToGaugeMetric("MCacheSys", memStats.MCacheSys)
+	m.data["MSpanInuse"] = convertUint64ToGaugeMetric("MSpanInuse", memStats.MSpanInuse)
+	m.data["MSpanSys"] = convertUint64ToGaugeMetric("MSpanSys", memStats.MSpanSys)
+	m.data["Mallocs"] = convertUint64ToGaugeMetric("Mallocs", memStats.Mallocs)
+	m.data["NextGC"] = convertUint64ToGaugeMetric("NextGC", memStats.NextGC)
+	m.data["NumForcedGC"] = convertUint32ToGaugeMetric("NumForcedGC", memStats.NumForcedGC)
+	m.data["NumGC"] = convertUint32ToGaugeMetric("NumGC", memStats.NumGC)
+	m.data["OtherSys"] = convertUint64ToGaugeMetric("OtherSys", memStats.OtherSys)
+	m.data["PauseTotalNs"] = convertUint64ToGaugeMetric("PauseTotalNs", memStats.PauseTotalNs)
+	m.data["StackInuse"] = convertUint64ToGaugeMetric("StackInuse", memStats.StackInuse)
+	m.data["StackSys"] = convertUint64ToGaugeMetric("StackSys", memStats.StackSys)
+	m.data["Sys"] = convertUint64ToGaugeMetric("Sys", memStats.Sys)
+	m.data["TotalAlloc"] = convertUint64ToGaugeMetric("TotalAlloc", memStats.TotalAlloc)
+	m.data["RandomValue"] = convertUint32ToGaugeMetric("RandomValue", rand.Uint32())
 }
 
-func sendReport(serverAddr, key string, metrics *metrics, httpClient *resty.Client, logger zerolog.Logger) {
-	metricsSlice := make([]model.Metrics, 0)
+func convertUint64ToGaugeMetric(name string, v uint64) model.Metrics {
+	float64Value := float64(v)
+	return model.Metrics{ID: name, MType: model.Gauge, Value: &float64Value}
+}
 
-	for name, value := range metrics.memStat {
-		m := model.Metrics{ID: name, MType: model.Gauge, Value: &value}
-		metricsSlice = append(metricsSlice, m)
+func convertFloat64ToGaugeMetric(name string, v float64) model.Metrics {
+	return model.Metrics{ID: name, MType: model.Gauge, Value: &v}
+}
+
+func convertUint32ToGaugeMetric(name string, v uint32) model.Metrics {
+	float64Value := float64(v)
+	return model.Metrics{ID: name, MType: model.Gauge, Value: &float64Value}
+}
+
+func pollUtilMetrics(m *metrics, logger zerolog.Logger) {
+	if vm, err := mem.VirtualMemory(); err != nil {
+		logger.Error().Str("error", err.Error()).Msg("Error on polling virtual memory")
+	} else {
+		m.data["TotalMemory"] = convertUint64ToGaugeMetric("TotalMemory", vm.Total)
+		m.data["FreeMemory"] = convertUint64ToGaugeMetric("FreeMemory", vm.Free)
 	}
-	mPollCount := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &metrics.pollCount}
-	mRandomValue := model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &metrics.randomValue}
-	metricsSlice = append(metricsSlice, mPollCount, mRandomValue)
 
+	if pct, err := cpu.Percent(0, true); err != nil {
+		logger.Error().Str("error", err.Error()).Msg("Error on polling CPU utilization")
+	} else {
+		for i, p := range pct {
+			name := fmt.Sprintf("CPUutilization%d", i+1)
+			m.data[name] = convertFloat64ToGaugeMetric(name, p)
+		}
+	}
+}
+
+func sendReport(serverAddr, key string, metrics map[string]model.Metrics, httpClient *resty.Client, logger zerolog.Logger) {
+	metricsSlice := make([]model.Metrics, 0, len(metrics))
+	for _, v := range metrics {
+		metricsSlice = append(metricsSlice, v)
+	}
 	if err := sendMetrics(serverAddr, key, metricsSlice, httpClient); err != nil {
 		logger.Error().Str("error", err.Error()).Msg("Error on sending metrics")
 	}

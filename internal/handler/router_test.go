@@ -350,6 +350,165 @@ func compressWithGzip(body string) (*bytes.Buffer, error) {
 	return buf, nil
 }
 
+//	func TestUpdatesHandler(t *testing.T) {
+//		// Arrange
+//		logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+//		flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+//		os.Args = []string{"server"}
+//
+//		ms := repository.NewMemStorage()
+//		key := ""
+//		ts := httptest.NewServer(MetricRouter(ms, key, logger))
+//		defer ts.Close()
+//
+//		tests := []struct {
+//			name           string
+//			method         string
+//			contentType    string
+//			body           string
+//			wantStatusCode int
+//		}{
+//			{
+//				name:           "fail when unsupported content type",
+//				method:         http.MethodPost,
+//				contentType:    "text/plain",
+//				body:           `{"id":"RandomValue","type":"gauge","value":12345}`,
+//				wantStatusCode: http.StatusUnsupportedMediaType,
+//			},
+//			{
+//				name:           "fail when method is not allowed",
+//				method:         http.MethodPut,
+//				contentType:    "application/json",
+//				body:           `{"id":"RandomValue","type":"gauge","value":12345}`,
+//				wantStatusCode: http.StatusMethodNotAllowed,
+//			},
+//			{
+//				name:           "fail when metric name is missing",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"","type":"gauge","value":12345}`,
+//				wantStatusCode: http.StatusNotFound,
+//			},
+//			{
+//				name:           "fail when counter delta value is invalid",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"PollCount","type":"counter","delta":"foo"}`,
+//				wantStatusCode: http.StatusBadRequest,
+//			},
+//			{
+//				name:           "fail when gauge value is invalid",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"GCCPUFraction","type":"gauge","value":"bar"}`,
+//				wantStatusCode: http.StatusBadRequest,
+//			},
+//			{
+//				name:           "fail with unsupported metric type",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"GCCPUFraction","type":"unsupported","value":0.5}`,
+//				wantStatusCode: http.StatusBadRequest,
+//			},
+//			{
+//				name:           "fail to add counter with invalid metric type",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"SomeCounter","type":"gauge","delta":15}`,
+//				wantStatusCode: http.StatusBadRequest,
+//			},
+//			{
+//				name:           "fail to add gauge with invalid metric type",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"SomeGauge","type":"counter","value":0.5}`,
+//				wantStatusCode: http.StatusBadRequest,
+//			},
+//			{
+//				name:           "fail to update counter with invalid metric type",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"PollCount","type":"gauge","delta":15}`,
+//				wantStatusCode: http.StatusBadRequest,
+//			},
+//			{
+//				name:           "fail to update gauge with invalid metric type",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"RandomValue","type":"counter","value":0.7}`,
+//				wantStatusCode: http.StatusBadRequest,
+//			},
+//			{
+//				name:           "fail to update counter without delta",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"PollCount","type":"counter"}`,
+//				wantStatusCode: http.StatusBadRequest,
+//			},
+//			{
+//				name:           "fail to update gauge without value",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"GCCPUFraction","type":"gauge"}`,
+//				wantStatusCode: http.StatusBadRequest,
+//			},
+//			{
+//				name:           "can add new gauge metric",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"GCCPUFraction","type":"gauge","value":0.5}`,
+//				wantStatusCode: http.StatusOK,
+//			},
+//			{
+//				name:           "can add new counter metric",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"MyCounter","type":"counter","delta":5}`,
+//				wantStatusCode: http.StatusOK,
+//			},
+//			{
+//				name:           "can update existed gauge metric",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"RandomValue","type":"gauge","value":23456}`,
+//				wantStatusCode: http.StatusOK,
+//			},
+//			{
+//				name:           "can update existed counter metric",
+//				method:         http.MethodPost,
+//				contentType:    "application/json",
+//				body:           `{"id":"PollCount","type":"counter","delta":15}`,
+//				wantStatusCode: http.StatusOK,
+//			},
+//		}
+//		ctx := context.Background()
+//		_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
+//		_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+//		for _, tt := range tests {
+//			t.Run(tt.name, func(t *testing.T) {
+//				// Arrange
+//				buf, err := compressWithGzip(tt.body)
+//				require.NoError(t, err)
+//				URL, err := url.JoinPath(ts.URL, "/updates")
+//				require.NoError(t, err)
+//				req, err := http.NewRequest(tt.method, URL, buf)
+//				require.NoError(t, err)
+//				req.Header.Set("Content-Type", tt.contentType)
+//				req.Header.Set("Content-Encoding", "gzip")
+//
+//				// Act
+//				resp, err := ts.Client().Do(req)
+//				require.NoError(t, err)
+//				defer resp.Body.Close()
+//
+//				// Assert
+//				_, err = io.ReadAll(resp.Body)
+//
+//				require.NoError(t, err)
+//				assert.Equal(t, tt.wantStatusCode, resp.StatusCode)
+//			})
+//		}
+//	}
 func TestGetMetricHandler(t *testing.T) {
 	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
