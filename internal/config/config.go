@@ -15,6 +15,7 @@ const (
 	defaultPollInterval   = 2
 	defaultStoreInterval  = 300
 	defaultRestore        = false
+	defaultRateLimit      = 10
 )
 
 type AgentConfig struct {
@@ -22,6 +23,7 @@ type AgentConfig struct {
 	ReportInterval int
 	PollInterval   int
 	Key            string
+	RateLimit      int
 }
 type ServerConfig struct {
 	ServerAddr      string
@@ -156,6 +158,7 @@ func GetAgentConfig() (AgentConfig, error) {
 	reportIntervalFlag := flag.Int("r", defaultReportInterval, "частота отправки метрик на сервер")
 	pollIntervalFlag := flag.Int("p", defaultPollInterval, "частота опроса метрик из пакета runtime")
 	keyFlag := flag.String("k", "", "ключ для подписи запросов")
+	rateLimitFlag := flag.Int("l", defaultRateLimit, "количество одновременно исходящих запросов агента на сервер")
 	flag.Parse()
 
 	cfg := AgentConfig{}
@@ -175,11 +178,16 @@ func GetAgentConfig() (AgentConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	rateLimit, err := getRateLimit(rateLimitFlag)
+	if err != nil {
+		return cfg, err
+	}
 
 	cfg.ServerAddr = serverAddr
 	cfg.ReportInterval = reportInterval
 	cfg.PollInterval = pollInterval
 	cfg.Key = key
+	cfg.RateLimit = rateLimit
 	return cfg, nil
 }
 
@@ -213,4 +221,16 @@ func getKey(keyFlag *string) (string, error) {
 		return *keyFlag, nil
 	}
 	return keyEnvStr, nil
+}
+
+func getRateLimit(rateLimitFlag *int) (int, error) {
+	rateLimitEnvStr, ok := os.LookupEnv("RATE_LIMIT")
+	if !ok {
+		return *rateLimitFlag, nil
+	}
+	rateLimitEnv, err := strconv.Atoi(rateLimitEnvStr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert RATE_LIMIT environment variable to integer: %w", err)
+	}
+	return rateLimitEnv, nil
 }

@@ -23,6 +23,8 @@ func TestCanGetAgentConfig_Default(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("KEY")
 	require.NoError(t, err)
+	err = os.Unsetenv("RATE_LIMIT")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetAgentConfig()
@@ -32,6 +34,7 @@ func TestCanGetAgentConfig_Default(t *testing.T) {
 	assert.Equal(t, defaultServerAddr, cfg.ServerAddr)
 	assert.Equal(t, defaultPollInterval, cfg.PollInterval)
 	assert.Equal(t, defaultReportInterval, cfg.ReportInterval)
+	assert.Equal(t, defaultRateLimit, cfg.RateLimit)
 	assert.Equal(t, "", cfg.Key)
 }
 
@@ -39,7 +42,7 @@ func TestCanGetAgentConfig_Default(t *testing.T) {
 func TestCanGetAgentConfig_Flag(t *testing.T) {
 	// Arrange
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"agent", "-a=127.0.0.1:8081", "-r=5", "-p=1", "-k=secret"}
+	os.Args = []string{"agent", "-a=127.0.0.1:8081", "-r=5", "-p=1", "-k=secret", "-l=15"}
 	err := os.Unsetenv("ADDRESS")
 	require.NoError(t, err)
 	err = os.Unsetenv("REPORT_INTERVAL")
@@ -47,6 +50,8 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 	err = os.Unsetenv("POLL_INTERVAL")
 	require.NoError(t, err)
 	err = os.Unsetenv("KEY")
+	require.NoError(t, err)
+	err = os.Unsetenv("RATE_LIMIT")
 	require.NoError(t, err)
 
 	// Act
@@ -58,6 +63,7 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 	assert.Equal(t, 5, cfg.ReportInterval)
 	assert.Equal(t, 1, cfg.PollInterval)
 	assert.Equal(t, "secret", cfg.Key)
+	assert.Equal(t, 15, cfg.RateLimit)
 }
 
 // TestCanGetAgentConfig_Env проверяет парсинг переменных окружения агента
@@ -73,6 +79,8 @@ func TestCanGetAgentConfig_Env(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("KEY", "everybodyknows")
 	require.NoError(t, err)
+	err = os.Setenv("RATE_LIMIT", "20")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetAgentConfig()
@@ -83,13 +91,14 @@ func TestCanGetAgentConfig_Env(t *testing.T) {
 	assert.Equal(t, 5, cfg.ReportInterval)
 	assert.Equal(t, 1, cfg.PollInterval)
 	assert.Equal(t, "everybodyknows", cfg.Key)
+	assert.Equal(t, 20, cfg.RateLimit)
 }
 
 // TestCanGetAgentConfig_EnvPrecedence проверяет приоритет переменных окружения над параметрами командной строки агента
 func TestCanGetAgentConfig_EnvPrecedence(t *testing.T) {
 	// Arrange
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"agent", "-a=127.0.0.1:8081", "-r=5", "-p=1", "-k=secret"}
+	os.Args = []string{"agent", "-a=127.0.0.1:8081", "-r=5", "-p=1", "-k=secret", "-l=15"}
 	err := os.Setenv("ADDRESS", "localhost:8085")
 	require.NoError(t, err)
 	err = os.Setenv("REPORT_INTERVAL", "15")
@@ -97,6 +106,8 @@ func TestCanGetAgentConfig_EnvPrecedence(t *testing.T) {
 	err = os.Setenv("POLL_INTERVAL", "3")
 	require.NoError(t, err)
 	err = os.Setenv("KEY", "everybodyknows")
+	require.NoError(t, err)
+	err = os.Setenv("RATE_LIMIT", "20")
 	require.NoError(t, err)
 
 	// Act
@@ -108,4 +119,5 @@ func TestCanGetAgentConfig_EnvPrecedence(t *testing.T) {
 	assert.Equal(t, 15, cfg.ReportInterval)
 	assert.Equal(t, 3, cfg.PollInterval)
 	assert.Equal(t, "everybodyknows", cfg.Key)
+	assert.Equal(t, 20, cfg.RateLimit)
 }
