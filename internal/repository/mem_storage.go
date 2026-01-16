@@ -3,11 +3,13 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"zerogravity-82/metrics/internal/model"
 )
 
 type MemStorage struct {
+	sync.RWMutex
 	metrics map[string]model.Metrics
 }
 
@@ -22,6 +24,13 @@ func (ms *MemStorage) UpdateMetric(_ context.Context, m model.Metrics) error {
 		return err
 	}
 
+	ms.Lock()
+	defer ms.Unlock()
+
+	return ms.doUpdateMetric(m)
+}
+
+func (ms *MemStorage) doUpdateMetric(m model.Metrics) error {
 	switch m.MType {
 	case model.Counter:
 		if _, ok := ms.metrics[m.ID]; !ok {
@@ -45,15 +54,19 @@ func (ms *MemStorage) UpdateMetric(_ context.Context, m model.Metrics) error {
 	return nil
 }
 
-func (ms *MemStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
+func (ms *MemStorage) UpdateMetrics(_ context.Context, metrics []model.Metrics) error {
 	for _, m := range metrics {
 		if err := validateMetric(m); err != nil {
 			return err
 		}
 	}
+
 	// обновляем только в случае, если все метрики валидные
+	ms.Lock()
+	defer ms.Unlock()
+
 	for _, m := range metrics {
-		if err := ms.UpdateMetric(ctx, m); err != nil {
+		if err := ms.doUpdateMetric(m); err != nil {
 			return err
 		}
 	}
@@ -62,6 +75,9 @@ func (ms *MemStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics
 }
 
 func (ms *MemStorage) GetMetric(_ context.Context, mType, mName string) (model.Metrics, error) {
+	ms.RLock()
+	defer ms.RUnlock()
+
 	if v, ok := ms.metrics[mName]; !ok || v.MType != mType {
 		return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
 	} else {

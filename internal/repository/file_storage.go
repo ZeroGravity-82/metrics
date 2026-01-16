@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
@@ -15,29 +16,27 @@ import (
 type FileStorage struct {
 	MemStorage
 	file *os.File
+	mu   sync.Mutex
 }
 
 func NewFileStorage(cfg config.ServerConfig) (*FileStorage, error) {
-	ms := MemStorage{
-		metrics: make(map[string]model.Metrics),
-	}
 	file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the file with metrics: %w", err)
 	}
 	fs := FileStorage{
-		MemStorage: ms,
+		MemStorage: *NewMemStorage(),
 		file:       file,
 	}
 	if cfg.Restore {
-		if err := restoreMetrics(ms, file); err != nil {
+		if err := restoreMetrics(fs.metrics, file); err != nil {
 			return nil, err
 		}
 	}
 	return &fs, nil
 }
 
-func restoreMetrics(ms MemStorage, file *os.File) error {
+func restoreMetrics(metrics map[string]model.Metrics, file *os.File) error {
 	reader := bufio.NewReader(file)
 	data, err := io.ReadAll(reader)
 	if err != nil {
@@ -51,12 +50,15 @@ func restoreMetrics(ms MemStorage, file *os.File) error {
 		return fmt.Errorf("failed to unmarshall metrics read from the file: %w", err)
 	}
 	for _, m := range metricSlice {
-		ms.metrics[m.ID] = m
+		metrics[m.ID] = m
 	}
 	return nil
 }
 
 func (fs *FileStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
 	if err := fs.MemStorage.UpdateMetric(ctx, m); err != nil {
 		return err
 	}
@@ -96,6 +98,9 @@ func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
 }
 
 func (fs *FileStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
 	if err := fs.MemStorage.UpdateMetrics(ctx, metrics); err != nil {
 		return err
 	}
