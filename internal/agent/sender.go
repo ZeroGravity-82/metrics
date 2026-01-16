@@ -47,63 +47,50 @@ func (m *metrics) incrementPollCount() {
 }
 
 func Run(cfg config.AgentConfig, logger zerolog.Logger) {
-	const maxRetries = 3
 	m := newMetrics()
+
 	var wg sync.WaitGroup
-
-	pollInterval := time.Duration(cfg.PollInterval) * time.Second
-	pollTicker := time.NewTicker(pollInterval)
-	wg.Add(1)
+	wg.Add(3)
 	go func() {
-		defer pollTicker.Stop()
 		defer wg.Done()
-		for {
-			select {
-			case <-pollTicker.C:
-				m.Lock()
-				pollMetrics(m)
-				m.incrementPollCount()
-				m.Unlock()
-			}
+
+		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			m.Lock()
+			pollMetrics(m)
+			m.incrementPollCount()
+			m.Unlock()
 		}
 	}()
-	pollUtilTicker := time.NewTicker(pollInterval)
-	wg.Add(1)
 	go func() {
-		defer pollUtilTicker.Stop()
 		defer wg.Done()
-		for {
-			select {
-			case <-pollUtilTicker.C:
-				m.Lock()
-				pollUtilMetrics(m, logger)
-				m.Unlock()
-			}
+
+		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			m.Lock()
+			pollUtilMetrics(m, logger)
+			m.Unlock()
 		}
 	}()
-
-	reportTicker := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
-	wg.Add(1)
 	go func() {
-		defer reportTicker.Stop()
 		defer wg.Done()
+
+		ticker := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
+		defer ticker.Stop()
+
+		const maxRetries = 3
 		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
-		for {
-			select {
-			case <-reportTicker.C:
-				m.Lock()
-				mDataCopy := make(map[string]model.Metrics, len(m.data))
-				for n, v := range m.data {
-					mDataCopy[n] = v
-				}
-				m.resetPollCount()
-				m.Unlock()
+		for range ticker.C {
+			m.Lock()
+			mCopy := copyMetrics(m)
+			m.resetPollCount()
+			m.Unlock()
 
-				sendReport(cfg.ServerAddr, cfg.Key, mDataCopy, httpClient, logger)
-			}
+			sendReport(cfg.ServerAddr, cfg.Key, mCopy, httpClient, logger)
 		}
 	}()
-
 	wg.Wait()
 }
 
@@ -121,6 +108,14 @@ func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Durati
 		}
 		return otherRetriesDelay, nil
 	}
+}
+
+func copyMetrics(m *metrics) map[string]model.Metrics {
+	mDataCopy := make(map[string]model.Metrics, len(m.data))
+	for n, v := range m.data {
+		mDataCopy[n] = v
+	}
+	return mDataCopy
 }
 
 func pollMetrics(m *metrics) {

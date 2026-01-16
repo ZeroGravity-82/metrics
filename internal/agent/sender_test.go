@@ -17,6 +17,14 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
+func int64Pointer(v int64) *int64 {
+	return &v
+}
+
+func float64Pointer(v float64) *float64 {
+	return &v
+}
+
 func TestPollMetrics(t *testing.T) {
 	// Arrange
 	m := newMetrics()
@@ -55,6 +63,76 @@ func TestPollMetrics(t *testing.T) {
 	assert.Contains(t, m.data, "RandomValue")
 }
 
+func TestPollUtilMetrics(t *testing.T) {
+	// Arrange
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	m := newMetrics()
+
+	// Act
+	pollUtilMetrics(m, logger)
+
+	// Assert
+	assert.Contains(t, m.data, "TotalMemory")
+	assert.Contains(t, m.data, "FreeMemory")
+	assert.Contains(t, m.data, "CPUutilization1")
+}
+
+func TestResetPollCount(t *testing.T) {
+	t.Run("test can initialize poll count metric", func(t *testing.T) {
+		// Arrange
+		m := newMetrics()
+
+		// Act
+		m.resetPollCount()
+
+		// Assert
+		assert.Equal(
+			t,
+			model.Metrics{ID: "PollCount", MType: model.Counter, Value: nil, Delta: int64Pointer(0)},
+			m.data["PollCount"],
+		)
+	})
+	t.Run("test can increment poll count metric", func(t *testing.T) {
+		// Arrange
+		m := newMetrics()
+		m.resetPollCount()
+
+		// Act
+		m.incrementPollCount()
+
+		// Assert
+		assert.Equal(
+			t,
+			model.Metrics{ID: "PollCount", MType: model.Counter, Value: nil, Delta: int64Pointer(1)},
+			m.data["PollCount"],
+		)
+	})
+}
+
+func TestCopyMetrics(t *testing.T) {
+	// Arrange
+	originalMetrics := &metrics{
+		data: map[string]model.Metrics{
+			"Alloc":     {ID: "Alloc", MType: model.Gauge, Value: float64Pointer(12345)},
+			"PollCount": {ID: "PollCount", MType: model.Counter, Delta: int64Pointer(10)},
+			"HeapAlloc": {ID: "HeapAlloc", MType: model.Gauge, Value: float64Pointer(67890)},
+		},
+	}
+
+	// Act
+	copiedMetrics := copyMetrics(originalMetrics)
+
+	// Assert
+	assert.Equal(t, len(originalMetrics.data), len(copiedMetrics))
+	for key, originalMetric := range originalMetrics.data {
+		copiedMetric, exists := copiedMetrics[key]
+		assert.True(t, exists)
+		assert.Equal(t, originalMetric, copiedMetric)
+	}
+	copiedMetrics["Alloc"] = model.Metrics{ID: "Alloc", MType: model.Gauge, Value: float64Pointer(54321)}
+	assert.NotEqual(t, originalMetrics.data["Alloc"], copiedMetrics["Alloc"]) // Изменение копии не влияет на оригинал
+}
+
 func TestSendReport(t *testing.T) {
 	// Arrange
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
@@ -84,7 +162,7 @@ func TestSendReport(t *testing.T) {
 			var processedMetricIDs []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Assert
-				assert.Equal(t, "/updates", r.URL.Path)
+				assert.Equal(t, "/update", r.URL.Path)
 
 				if tt.wantSignatureHeader {
 					assert.NotEmpty(t, r.Header.Get("HashSHA256"))
@@ -95,16 +173,14 @@ func TestSendReport(t *testing.T) {
 				zr, err := gzip.NewReader(r.Body)
 				require.NoError(t, err)
 
-				var receivedMetrics []model.Metrics
+				var m model.Metrics
 				dec := json.NewDecoder(zr)
-				err = dec.Decode(&receivedMetrics)
+				err = dec.Decode(&m)
 				require.NoError(t, err)
 
-				for _, m := range receivedMetrics {
-					assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
-					processedMetricIDs = append(processedMetricIDs, m.ID)
-					assert.Equal(t, sentMetrics.data[m.ID], m)
-				}
+				assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
+				processedMetricIDs = append(processedMetricIDs, m.ID)
+				assert.Equal(t, sentMetrics.data[m.ID], m)
 			}))
 			defer server.Close()
 			httpClient := resty.New()
