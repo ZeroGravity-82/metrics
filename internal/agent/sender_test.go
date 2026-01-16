@@ -158,6 +158,8 @@ func TestSendReport(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			const rateLimit = 5
+
 			// Arrange
 			var processedMetricIDs []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +188,7 @@ func TestSendReport(t *testing.T) {
 			httpClient := resty.New()
 
 			// Act
-			sendReport(server.URL, tt.key, sentMetrics.data, httpClient, logger)
+			sendReport(server.URL, tt.key, rateLimit, sentMetrics.data, httpClient, logger)
 
 			// Assert
 			assert.Equal(t, len(sentMetrics.data), len(processedMetricIDs))
