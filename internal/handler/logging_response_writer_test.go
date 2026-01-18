@@ -32,7 +32,9 @@ func TestLoggingResponseWriter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, len(totalData), n1+n2)
 	assert.True(t, bytes.Equal(totalData, recorder.Body.Bytes()))
-	assert.Equal(t, customStatusCode, recorder.Result().StatusCode)
+	result := recorder.Result()
+	defer result.Body.Close()
+	assert.Equal(t, customStatusCode, result.StatusCode)
 	assert.Equal(t, len(totalData), responseData.size)
 	assert.Equal(t, customStatusCode, responseData.status)
 }

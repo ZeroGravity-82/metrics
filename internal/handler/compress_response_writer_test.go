@@ -35,7 +35,9 @@ func TestCompressWriter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, len(totalData), n1+n2)
 	assert.Equal(t, "gzip", recorder.Header().Get("Content-Encoding"))
-	assert.Equal(t, customStatusCode, recorder.Result().StatusCode)
+	result := recorder.Result()
+	defer result.Body.Close()
+	assert.Equal(t, customStatusCode, result.StatusCode)
 
 	gzReader, err := gzip.NewReader(recorder.Body) // Проверяем сжатые данные
 	require.NoError(t, err)
