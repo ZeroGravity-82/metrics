@@ -83,7 +83,11 @@ func getStoreInterval(storeIntervalFlag *int) (int, error) {
 	}
 	storeIntervalEnv, err := strconv.Atoi(storeIntervalEnvStr)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert STORE_INTERNAL environment variable to integer: %w", err)
+		return 0, fmt.Errorf(
+			"failed to convert STORE_INTERNAL environment variable value '%s' to integer: %w",
+			storeIntervalEnvStr,
+			err,
+		)
 	}
 	return storeIntervalEnv, nil
 }
@@ -103,7 +107,11 @@ func getRestore(restoreFlag *bool) (bool, error) {
 	}
 	restoreEnv, err := strconv.ParseBool(restoreEnvStr)
 	if err != nil {
-		return false, fmt.Errorf("failed to convert RESTORE environment variable to boolean: %w", err)
+		return false, fmt.Errorf(
+			"failed to convert RESTORE environment variable value '%s' to boolean: %w",
+			restoreEnvStr,
+			err,
+		)
 	}
 	return restoreEnv, nil
 }
@@ -198,7 +206,11 @@ func getReportInterval(reportIntervalFlag *int) (int, error) {
 	}
 	reportIntervalEnv, err := strconv.Atoi(reportIntervalEnvStr)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert REPORT_INTERVAL environment variable to integer: %w", err)
+		return 0, fmt.Errorf(
+			"failed to convert REPORT_INTERVAL environment variable value '%s' to integer: %w",
+			reportIntervalEnvStr,
+			err,
+		)
 	}
 	return reportIntervalEnv, nil
 }
@@ -210,7 +222,11 @@ func getPollInterval(pollIntervalFlag *int) (int, error) {
 	}
 	pollIntervalEnv, err := strconv.Atoi(pollIntervalEnvStr)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert POLL_INTERVAL environment variable to integer: %w", err)
+		return 0, fmt.Errorf(
+			"failed to convert POLL_INTERVAL environment variable value '%s' to integer: %w",
+			pollIntervalEnvStr,
+			err,
+		)
 	}
 	return pollIntervalEnv, nil
 }
@@ -230,7 +246,11 @@ func getRateLimit(rateLimitFlag *int) (int, error) {
 	}
 	rateLimitEnv, err := strconv.Atoi(rateLimitEnvStr)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert RATE_LIMIT environment variable to integer: %w", err)
+		return 0, fmt.Errorf(
+			"failed to convert RATE_LIMIT environment variable value '%s' to integer: %w",
+			rateLimitEnvStr,
+			err,
+		)
 	}
 	return rateLimitEnv, nil
 }
