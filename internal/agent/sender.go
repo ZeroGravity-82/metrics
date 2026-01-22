@@ -17,7 +17,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
-	"golang.org/x/sync/errgroup"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
@@ -38,6 +37,12 @@ func newMetrics() *metrics {
 
 func (m *metrics) resetPollCount() {
 	var v int64
+	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
+}
+
+func (m *metrics) addPollCount(delta int64) {
+	v := *m.data["PollCount"].Delta
+	v += delta
 	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
 }
 
@@ -81,15 +86,29 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 		ticker := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
 		defer ticker.Stop()
 
+		s := NewSemaphore(cfg.RateLimit)
 		const maxRetries = 3
-		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
+		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc()).SetRetryMaxWaitTime(1000 * time.Second)
 		for range ticker.C {
-			m.Lock()
-			mCopy := copyMetrics(m)
-			m.resetPollCount()
-			m.Unlock()
+			s.Acquire()
+			go func() {
+				defer s.Release()
 
-			sendReport(cfg.ServerAddr, cfg.Key, cfg.RateLimit, mCopy, httpClient, logger)
+				m.Lock()
+				mCopy := copyMetrics(m)
+				m.resetPollCount()
+				m.Unlock()
+
+				if err := sendReport(cfg.ServerAddr, cfg.Key, mCopy, httpClient); err != nil {
+					logger.Error().Str("error", err.Error()).Msg("Error on sending metrics")
+
+					// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
+					// возвращается в структуру metrics
+					m.Lock()
+					m.addPollCount(*mCopy["PollCount"].Delta)
+					m.Unlock()
+				}
+			}()
 		}
 	}()
 	wg.Wait()
@@ -185,64 +204,51 @@ func pollUtilMetrics(m *metrics, logger zerolog.Logger) {
 	}
 }
 
-func sendReport(serverAddr, key string, rateLimit int, metrics map[string]model.Metrics, httpClient *resty.Client, logger zerolog.Logger) {
+func sendReport(serverAddr, key string, metrics map[string]model.Metrics, httpClient *resty.Client) error {
 	metricsSlice := make([]model.Metrics, 0, len(metrics))
 	for _, v := range metrics {
 		metricsSlice = append(metricsSlice, v)
 	}
-	if err := sendMetrics(serverAddr, key, rateLimit, metricsSlice, httpClient); err != nil {
-		logger.Error().Str("error", err.Error()).Msg("Error on sending metrics")
-	}
-}
-
-func sendMetrics(serverAddr, key string, rateLimit int, metrics []model.Metrics, httpClient *resty.Client) error {
-	serverAddr = addDefaultURLSchema(serverAddr)
-	URL, err := url.JoinPath(serverAddr, "/update")
-	if err != nil {
-		return fmt.Errorf("failed to build URL: %w", err)
-	}
-
-	g := new(errgroup.Group)
-	s := NewSemaphore(rateLimit)
-	for _, m := range metrics {
-		m := m
-		g.Go(func() error {
-			s.Acquire()
-			defer s.Release()
-
-			jsonBz, err := marshal(m)
-			if err != nil {
-				return err
-			}
-			gzipBz, err := compress(jsonBz)
-			if err != nil {
-				return err
-			}
-			r := httpClient.R().
-				SetHeader("Content-Type", "application/json").
-				SetHeader("Content-Encoding", "gzip").
-				SetBody(gzipBz)
-			if key != "" {
-				hashBz := sha256.Sum256(jsonBz)
-				r.SetHeader("HashSHA256", fmt.Sprintf("%x", hashBz))
-			}
-			_, err = r.Post(URL)
-			if err != nil {
-				return fmt.Errorf("failed to send the request: %w", err)
-			}
-			return nil
-		})
-	}
-	if err = g.Wait(); err != nil {
+	if err := sendMetrics(serverAddr, key, metricsSlice, httpClient); err != nil {
 		return err
 	}
 	return nil
 }
 
-func marshal(m model.Metrics) ([]byte, error) {
-	jsonBz, err := json.Marshal(m)
+func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *resty.Client) error {
+	jsonBz, err := marshal(metrics)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal metric: %w", err)
+		return err
+	}
+	gzipBz, err := compress(jsonBz)
+	if err != nil {
+		return err
+	}
+
+	serverAddr = addDefaultURLSchema(serverAddr)
+	URL, err := url.JoinPath(serverAddr, "/updates")
+	if err != nil {
+		return fmt.Errorf("failed to build URL: %w", err)
+	}
+	r := httpClient.R().
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Content-Encoding", "gzip").
+		SetBody(gzipBz)
+	if key != "" {
+		hashBz := sha256.Sum256(jsonBz)
+		r.SetHeader("HashSHA256", fmt.Sprintf("%x", hashBz))
+	}
+	_, err = r.Post(URL)
+	if err != nil {
+		return fmt.Errorf("failed to send the request: %w", err)
+	}
+	return nil
+}
+
+func marshal(metrics []model.Metrics) ([]byte, error) {
+	jsonBz, err := json.Marshal(metrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal metrics: %w", err)
 	}
 	return jsonBz, nil
 }

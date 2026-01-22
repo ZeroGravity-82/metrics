@@ -135,7 +135,6 @@ func TestCopyMetrics(t *testing.T) {
 
 func TestSendReport(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	sentMetrics := newMetrics()
 	pollMetrics(sentMetrics)
 
@@ -158,13 +157,11 @@ func TestSendReport(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const rateLimit = 5
-
 			// Arrange
 			var processedMetricIDs []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Assert
-				assert.Equal(t, "/update", r.URL.Path)
+				assert.Equal(t, "/updates", r.URL.Path)
 
 				if tt.wantSignatureHeader {
 					assert.NotEmpty(t, r.Header.Get("HashSHA256"))
@@ -175,20 +172,23 @@ func TestSendReport(t *testing.T) {
 				zr, err := gzip.NewReader(r.Body)
 				require.NoError(t, err)
 
-				var m model.Metrics
+				var receivedMetrics []model.Metrics
 				dec := json.NewDecoder(zr)
-				err = dec.Decode(&m)
+				err = dec.Decode(&receivedMetrics)
 				require.NoError(t, err)
 
-				assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
-				processedMetricIDs = append(processedMetricIDs, m.ID)
-				assert.Equal(t, sentMetrics.data[m.ID], m)
+				for _, m := range receivedMetrics {
+					assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
+					processedMetricIDs = append(processedMetricIDs, m.ID)
+					assert.Equal(t, sentMetrics.data[m.ID], m)
+				}
 			}))
 			defer server.Close()
 			httpClient := resty.New()
 
 			// Act
-			sendReport(server.URL, tt.key, rateLimit, sentMetrics.data, httpClient, logger)
+			err := sendReport(server.URL, tt.key, sentMetrics.data, httpClient)
+			require.NoError(t, err)
 
 			// Assert
 			assert.Equal(t, len(sentMetrics.data), len(processedMetricIDs))
