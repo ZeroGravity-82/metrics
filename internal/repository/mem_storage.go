@@ -9,7 +9,7 @@ import (
 )
 
 type MemStorage struct {
-	sync.RWMutex
+	sync.Mutex
 	metrics map[string]model.Metrics
 }
 
@@ -75,8 +75,8 @@ func (ms *MemStorage) UpdateMetrics(_ context.Context, metrics []model.Metrics) 
 }
 
 func (ms *MemStorage) GetMetric(_ context.Context, mType, mName string) (model.Metrics, error) {
-	ms.RLock()
-	defer ms.RUnlock()
+	ms.Lock()
+	defer ms.Unlock()
 
 	if v, ok := ms.metrics[mName]; !ok || v.MType != mType {
 		return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
