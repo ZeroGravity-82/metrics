@@ -41,8 +41,10 @@ func MetricRouter(s Storage, key string, logger zerolog.Logger) chi.Router {
 		middleware.StripSlashes,
 		withLogging(logger),
 		withGzip(logger),
-		withSignature(key, logger),
 	)
+	if key != "" {
+		r.Use(withSignature(key, logger))
+	}
 	textPlainContentType := middleware.AllowContentType("text/plain")
 	r.With(textPlainContentType).Post(
 		"/update/{mType}/{mName}/{mValue}",
@@ -97,39 +99,33 @@ func withSignature(key string, logger zerolog.Logger) func(next http.Handler) ht
 				return
 			}
 			if len(body) > 0 {
-				if key != "" && r.Header.Get(signatureHeaderName) == "" {
+				if r.Header.Get(signatureHeaderName) == "" {
 					http.Error(w, fmt.Sprintf("header %s is not provided", signatureHeaderName), http.StatusBadRequest)
 					return
 				}
-				valid, err := isSignatureValid(r.Header.Get(signatureHeaderName), body, key)
+				err = validateSignature(r.Header.Get(signatureHeaderName), body, key)
 				if err != nil {
-					http.Error(w, fmt.Sprintf("unable to read request signature: %s", err.Error()), http.StatusBadRequest)
-					return
-				}
-				if !valid {
-					http.Error(w, "invalid request signature", http.StatusBadRequest)
+					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
 				}
 			}
 			r.Body = io.NopCloser(bytes.NewBuffer(body))
-			ow := w
-			if key != "" {
-				ow = newSigningResponseWriter(w, key, logger)
-			}
+			ow := newSigningResponseWriter(w, key, logger)
 			next.ServeHTTP(ow, r)
 		})
 	}
 }
 
-func isSignatureValid(signature string, body []byte, key string) (bool, error) {
-	if key == "" {
-		return true, nil
-	}
+func validateSignature(signature string, body []byte, key string) error {
 	decodedSig, err := hex.DecodeString(signature)
 	if err != nil {
-		return false, fmt.Errorf("unable to decode signature string: %w", err)
+		return fmt.Errorf("unable to decode signature string: %w", err)
 	}
-	return hmac.Equal(generateSignature(body, key), decodedSig), nil
+	if !hmac.Equal(generateSignature(body, key), decodedSig) {
+		return errors.New("invalid request signature")
+	}
+
+	return nil
 }
 
 func generateSignature(data []byte, key string) []byte {
