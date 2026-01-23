@@ -38,3 +38,20 @@ func TestLoggingResponseWriter(t *testing.T) {
 	assert.Equal(t, len(totalData), responseData.size)
 	assert.Equal(t, customStatusCode, responseData.status)
 }
+
+func TestLoggingResponseWriter_WriteDefaultStatusCode(t *testing.T) {
+	// Arrange
+	// Arrange
+	recorder := httptest.NewRecorder()
+	responseData := &responseData{}
+	writer := newLoggingResponseWriter(recorder, responseData)
+
+	// Act
+	_, err := writer.Write(nil)
+
+	// Assert
+	require.NoError(t, err)
+	result := recorder.Result()
+	defer result.Body.Close()
+	assert.Equal(t, http.StatusOK, result.StatusCode)
+}
