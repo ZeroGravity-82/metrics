@@ -262,3 +262,14 @@ func TestRetryAfterFunc(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2*time.Second, duration)
 }
+
+func TestRestorePollCount(t *testing.T) {
+	// Arrange
+	sentMetrics := newMetrics()
+
+	// Act
+	sentMetrics.restorePollCount(3)
+
+	// Assert
+	assert.Equal(t, int64(3), *sentMetrics.data["PollCount"].Delta)
+}
