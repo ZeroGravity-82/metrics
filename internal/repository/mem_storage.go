@@ -9,7 +9,7 @@ import (
 )
 
 type MemStorage struct {
-	sync.Mutex
+	mu      sync.Mutex
 	metrics map[string]model.Metrics
 }
 
@@ -24,8 +24,8 @@ func (ms *MemStorage) UpdateMetric(_ context.Context, m model.Metrics) error {
 		return err
 	}
 
-	ms.Lock()
-	defer ms.Unlock()
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
 
 	return ms.doUpdateMetric(m)
 }
@@ -62,8 +62,8 @@ func (ms *MemStorage) UpdateMetrics(_ context.Context, metrics []model.Metrics) 
 	}
 
 	// обновляем только в случае, если все метрики валидные
-	ms.Lock()
-	defer ms.Unlock()
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
 
 	for _, m := range metrics {
 		if err := ms.doUpdateMetric(m); err != nil {
@@ -75,8 +75,8 @@ func (ms *MemStorage) UpdateMetrics(_ context.Context, metrics []model.Metrics) 
 }
 
 func (ms *MemStorage) GetMetric(_ context.Context, mType, mName string) (model.Metrics, error) {
-	ms.Lock()
-	defer ms.Unlock()
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
 
 	if v, ok := ms.metrics[mName]; !ok || v.MType != mType {
 		return model.Metrics{}, fmt.Errorf("%w: type %s, ID %s", ErrMetricNotFound, mType, mName)
