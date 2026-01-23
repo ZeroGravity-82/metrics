@@ -23,7 +23,7 @@ import (
 )
 
 type metrics struct {
-	sync.Mutex
+	mu   sync.Mutex
 	data map[string]model.Metrics
 }
 
@@ -40,105 +40,10 @@ func (m *metrics) resetPollCount() {
 	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
 }
 
-func (m *metrics) addPollCount(delta int64) {
-	v := *m.data["PollCount"].Delta
-	v += delta
-	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
-}
+func (m *metrics) pollMetrics() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-func (m *metrics) incrementPollCount() {
-	v := *m.data["PollCount"].Delta
-	v++
-	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
-}
-
-func Run(cfg config.AgentConfig, logger zerolog.Logger) {
-	m := newMetrics()
-
-	var wg sync.WaitGroup
-	wg.Add(3)
-	go func() {
-		defer wg.Done()
-
-		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			m.Lock()
-			pollMetrics(m)
-			m.incrementPollCount()
-			m.Unlock()
-		}
-	}()
-	go func() {
-		defer wg.Done()
-
-		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			m.Lock()
-			pollUtilMetrics(m, logger)
-			m.Unlock()
-		}
-	}()
-	go func() {
-		defer wg.Done()
-
-		ticker := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
-		defer ticker.Stop()
-
-		s := NewSemaphore(cfg.RateLimit)
-		const maxRetries = 3
-		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc()).SetRetryMaxWaitTime(1000 * time.Second)
-		for range ticker.C {
-			s.Acquire()
-			go func() {
-				defer s.Release()
-
-				m.Lock()
-				mCopy := copyMetrics(m)
-				m.resetPollCount()
-				m.Unlock()
-
-				if err := sendReport(cfg.ServerAddr, cfg.Key, mCopy, httpClient); err != nil {
-					logger.Error().Str("error", err.Error()).Msg("Error on sending metrics")
-
-					// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
-					// возвращается в структуру metrics
-					m.Lock()
-					m.addPollCount(*mCopy["PollCount"].Delta)
-					m.Unlock()
-				}
-			}()
-		}
-	}()
-	wg.Wait()
-}
-
-func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Duration, error) {
-	const (
-		firstRetryDelay   = 1 * time.Second
-		otherRetriesDelay = 2 * time.Second
-	)
-
-	var retryCount int
-	return func(client *resty.Client, r *resty.Response) (time.Duration, error) {
-		if retryCount == 0 {
-			retryCount++
-			return firstRetryDelay, nil
-		}
-		return otherRetriesDelay, nil
-	}
-}
-
-func copyMetrics(m *metrics) map[string]model.Metrics {
-	mDataCopy := make(map[string]model.Metrics, len(m.data))
-	for n, v := range m.data {
-		mDataCopy[n] = v
-	}
-	return mDataCopy
-}
-
-func pollMetrics(m *metrics) {
 	memStats := runtime.MemStats{}
 	runtime.ReadMemStats(&memStats)
 
@@ -170,6 +75,8 @@ func pollMetrics(m *metrics) {
 	m.data["Sys"] = convertUint64ToGaugeMetric("Sys", memStats.Sys)
 	m.data["TotalAlloc"] = convertUint64ToGaugeMetric("TotalAlloc", memStats.TotalAlloc)
 	m.data["RandomValue"] = convertUint32ToGaugeMetric("RandomValue", rand.Uint32())
+
+	incrementPollCount(m)
 }
 
 func convertUint64ToGaugeMetric(name string, v uint64) model.Metrics {
@@ -186,14 +93,23 @@ func convertUint32ToGaugeMetric(name string, v uint32) model.Metrics {
 	return model.Metrics{ID: name, MType: model.Gauge, Value: &float64Value}
 }
 
-func pollUtilMetrics(m *metrics, logger zerolog.Logger) {
+func incrementPollCount(m *metrics) {
+	v := *m.data["PollCount"].Delta
+	v++
+	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
+}
+
+func (m *metrics) pollUtilMetrics(logger zerolog.Logger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if vm, err := mem.VirtualMemory(); err != nil {
 		logger.Error().Str("error", err.Error()).Msg("Error on polling virtual memory")
+
 	} else {
 		m.data["TotalMemory"] = convertUint64ToGaugeMetric("TotalMemory", vm.Total)
 		m.data["FreeMemory"] = convertUint64ToGaugeMetric("FreeMemory", vm.Free)
 	}
-
 	if pct, err := cpu.Percent(0, true); err != nil {
 		logger.Error().Str("error", err.Error()).Msg("Error on polling CPU utilization")
 	} else {
@@ -201,6 +117,96 @@ func pollUtilMetrics(m *metrics, logger zerolog.Logger) {
 			name := fmt.Sprintf("CPUutilization%d", i+1)
 			m.data[name] = convertFloat64ToGaugeMetric(name, p)
 		}
+	}
+}
+
+func (m *metrics) copyMetricsAndResetPollCount() map[string]model.Metrics {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	mCopy := make(map[string]model.Metrics, len(m.data))
+	for n, v := range m.data {
+		mCopy[n] = v
+	}
+	m.resetPollCount()
+	return mCopy
+}
+
+func (m *metrics) restorePollCount(delta int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v := *m.data["PollCount"].Delta
+	v += delta
+	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
+}
+
+func Run(cfg config.AgentConfig, logger zerolog.Logger) {
+	m := newMetrics()
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+
+		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			m.pollMetrics()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+
+		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			m.pollUtilMetrics(logger)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+
+		ticker := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
+		defer ticker.Stop()
+
+		s := NewSemaphore(cfg.RateLimit)
+		const maxRetries = 3
+		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
+		for range ticker.C {
+			s.Acquire()
+			go func() {
+				defer s.Release()
+
+				mCopy := m.copyMetricsAndResetPollCount()
+				if err := sendReport(cfg.ServerAddr, cfg.Key, mCopy, httpClient); err != nil {
+					logger.Error().Str("error", err.Error()).Msg("Error on sending metrics")
+
+					// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
+					// возвращается в структуру metrics
+					m.restorePollCount(*mCopy["PollCount"].Delta)
+				}
+			}()
+		}
+	}()
+	wg.Wait()
+}
+
+func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Duration, error) {
+	const (
+		firstRetryDelay   = 1 * time.Second
+		otherRetriesDelay = 2 * time.Second
+	)
+
+	var retryCount int
+	return func(client *resty.Client, r *resty.Response) (time.Duration, error) {
+		if retryCount == 0 {
+			retryCount++
+			return firstRetryDelay, nil
+		}
+		return otherRetriesDelay, nil
 	}
 }
 

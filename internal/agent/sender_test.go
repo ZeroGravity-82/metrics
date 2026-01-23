@@ -30,7 +30,7 @@ func TestPollMetrics(t *testing.T) {
 	m := newMetrics()
 
 	// Act
-	pollMetrics(m)
+	m.pollMetrics()
 
 	// Assert
 	assert.Contains(t, m.data, "Alloc")
@@ -69,7 +69,7 @@ func TestPollUtilMetrics(t *testing.T) {
 	m := newMetrics()
 
 	// Act
-	pollUtilMetrics(m, logger)
+	m.pollUtilMetrics(logger)
 
 	// Assert
 	assert.Contains(t, m.data, "TotalMemory")
@@ -78,57 +78,61 @@ func TestPollUtilMetrics(t *testing.T) {
 }
 
 func TestResetPollCount(t *testing.T) {
-	t.Run("test can initialize poll count metric", func(t *testing.T) {
-		// Arrange
-		m := newMetrics()
+	// Arrange
+	m := newMetrics()
 
-		// Act
-		m.resetPollCount()
+	// Act
+	m.resetPollCount()
 
-		// Assert
-		assert.Equal(
-			t,
-			model.Metrics{ID: "PollCount", MType: model.Counter, Value: nil, Delta: int64Pointer(0)},
-			m.data["PollCount"],
-		)
-	})
-	t.Run("test can increment poll count metric", func(t *testing.T) {
-		// Arrange
-		m := newMetrics()
-		m.resetPollCount()
+	// Assert
+	assert.Equal(
+		t,
+		model.Metrics{ID: "PollCount", MType: model.Counter, Value: nil, Delta: int64Pointer(0)},
+		m.data["PollCount"],
+	)
+}
+func TestIncrementPollCount(t *testing.T) {
+	// Arrange
+	m := newMetrics()
+	m.resetPollCount()
 
-		// Act
-		m.incrementPollCount()
+	// Act
+	incrementPollCount(m)
 
-		// Assert
-		assert.Equal(
-			t,
-			model.Metrics{ID: "PollCount", MType: model.Counter, Value: nil, Delta: int64Pointer(1)},
-			m.data["PollCount"],
-		)
-	})
+	// Assert
+	assert.Equal(
+		t,
+		model.Metrics{ID: "PollCount", MType: model.Counter, Value: nil, Delta: int64Pointer(1)},
+		m.data["PollCount"],
+	)
 }
 
-func TestCopyMetrics(t *testing.T) {
+func TestCopyMetricsAndResetPollCount(t *testing.T) {
 	// Arrange
+	pollCount := int64(10)
 	originalMetrics := &metrics{
 		data: map[string]model.Metrics{
 			"Alloc":     {ID: "Alloc", MType: model.Gauge, Value: float64Pointer(12345)},
-			"PollCount": {ID: "PollCount", MType: model.Counter, Delta: int64Pointer(10)},
+			"PollCount": {ID: "PollCount", MType: model.Counter, Delta: int64Pointer(pollCount)},
 			"HeapAlloc": {ID: "HeapAlloc", MType: model.Gauge, Value: float64Pointer(67890)},
 		},
 	}
 
 	// Act
-	copiedMetrics := copyMetrics(originalMetrics)
+	copiedMetrics := originalMetrics.copyMetricsAndResetPollCount()
 
 	// Assert
 	assert.Equal(t, len(originalMetrics.data), len(copiedMetrics))
 	for key, originalMetric := range originalMetrics.data {
 		copiedMetric, exists := copiedMetrics[key]
 		assert.True(t, exists)
-		assert.Equal(t, originalMetric, copiedMetric)
+		if key != "PollCount" {
+			assert.Equal(t, originalMetric, copiedMetric)
+		}
 	}
+	assert.Equal(t, pollCount, *copiedMetrics["PollCount"].Delta) // В копии сохранилось значение счетчика PollCount,
+	assert.Zero(t, *originalMetrics.data["PollCount"].Delta)      // но в оригинале оно сбросилось
+
 	copiedMetrics["Alloc"] = model.Metrics{ID: "Alloc", MType: model.Gauge, Value: float64Pointer(54321)}
 	assert.NotEqual(t, originalMetrics.data["Alloc"], copiedMetrics["Alloc"]) // Изменение копии не влияет на оригинал
 }
@@ -136,7 +140,7 @@ func TestCopyMetrics(t *testing.T) {
 func TestSendReport(t *testing.T) {
 	// Arrange
 	sentMetrics := newMetrics()
-	pollMetrics(sentMetrics)
+	sentMetrics.pollMetrics()
 
 	tests := []struct {
 		name                string
