@@ -56,9 +56,6 @@ func restoreMetrics(metrics map[string]model.Metrics, file *os.File) error {
 }
 
 func (fs *FileStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
 	if err := fs.MemStorage.UpdateMetric(ctx, m); err != nil {
 		return err
 	}
@@ -66,23 +63,26 @@ func (fs *FileStorage) UpdateMetric(ctx context.Context, m model.Metrics) error 
 	if err != nil {
 		return err
 	}
-	return storeMetrics(metrics, fs.file)
+	return fs.storeMetrics(metrics)
 }
 
-func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
+func (fs *FileStorage) storeMetrics(metrics map[string]model.Metrics) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
 	metricSlice := make([]model.Metrics, 0, len(metrics))
 	for _, m := range metrics {
 		metricSlice = append(metricSlice, m)
 	}
 
-	if err := file.Truncate(0); err != nil {
+	if err := fs.file.Truncate(0); err != nil {
 		return fmt.Errorf("failed to truncate the file before storing: %w", err)
 	}
-	if _, err := file.Seek(0, 0); err != nil {
+	if _, err := fs.file.Seek(0, 0); err != nil {
 		return fmt.Errorf("failed to seek to the beginning of the file before storing: %w", err)
 	}
 
-	writer := bufio.NewWriter(file)
+	writer := bufio.NewWriter(fs.file)
 	data, err := json.Marshal(metricSlice)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metrics before storing: %w", err)
@@ -93,14 +93,10 @@ func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
 	if err := writer.Flush(); err != nil {
 		return fmt.Errorf("failed to flush to the file remaining metrics: %w", err)
 	}
-
 	return nil
 }
 
 func (fs *FileStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
 	if err := fs.MemStorage.UpdateMetrics(ctx, metrics); err != nil {
 		return err
 	}
@@ -108,7 +104,7 @@ func (fs *FileStorage) UpdateMetrics(ctx context.Context, metrics []model.Metric
 	if err != nil {
 		return err
 	}
-	return storeMetrics(metricsMap, fs.file)
+	return fs.storeMetrics(metricsMap)
 }
 
 func (fs *FileStorage) Ping(_ context.Context) error {
