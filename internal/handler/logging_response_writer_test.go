@@ -41,7 +41,6 @@ func TestLoggingResponseWriter(t *testing.T) {
 
 func TestLoggingResponseWriter_WriteDefaultStatusCode(t *testing.T) {
 	// Arrange
-	// Arrange
 	recorder := httptest.NewRecorder()
 	responseData := &responseData{}
 	writer := newLoggingResponseWriter(recorder, responseData)
