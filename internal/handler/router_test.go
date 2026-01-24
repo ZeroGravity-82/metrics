@@ -160,9 +160,9 @@ func TestUpdateMetricHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			URL, err := url.JoinPath(ts.URL, "/update", tt.mType, tt.mName, tt.mValue)
+			urlPath, err := url.JoinPath(ts.URL, "/update", tt.mType, tt.mName, tt.mValue)
 			require.NoError(t, err)
-			req, err := http.NewRequest(tt.method, URL, http.NoBody)
+			req, err := http.NewRequest(tt.method, urlPath, http.NoBody)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 
@@ -318,9 +318,9 @@ func TestUpdateHandler(t *testing.T) {
 			// Arrange
 			buf, err := compressWithGzip(tt.body)
 			require.NoError(t, err)
-			URL, err := url.JoinPath(ts.URL, "/update")
+			urlPath, err := url.JoinPath(ts.URL, "/update")
 			require.NoError(t, err)
-			req, err := http.NewRequest(tt.method, URL, buf)
+			req, err := http.NewRequest(tt.method, urlPath, buf)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 			req.Header.Set("Content-Encoding", "gzip")
@@ -489,9 +489,9 @@ func TestUpdatesHandler(t *testing.T) {
 			// Arrange
 			buf, err := compressWithGzip(tt.body)
 			require.NoError(t, err)
-			URL, err := url.JoinPath(ts.URL, "/updates")
+			urlPath, err := url.JoinPath(ts.URL, "/updates")
 			require.NoError(t, err)
-			req, err := http.NewRequest(tt.method, URL, buf)
+			req, err := http.NewRequest(tt.method, urlPath, buf)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 			req.Header.Set("Content-Encoding", "gzip")
@@ -583,9 +583,9 @@ func TestGetMetricHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			URL, err := url.JoinPath(ts.URL, "/value", tt.mType, tt.mName)
+			urlPath, err := url.JoinPath(ts.URL, "/value", tt.mType, tt.mName)
 			require.NoError(t, err)
-			req, err := http.NewRequest(tt.method, URL, http.NoBody)
+			req, err := http.NewRequest(tt.method, urlPath, http.NoBody)
 			require.NoError(t, err)
 
 			// Act
@@ -705,9 +705,9 @@ func TestGetHandler(t *testing.T) {
 			// Arrange
 			buf, err := compressWithGzip(tt.body)
 			require.NoError(t, err)
-			URL, err := url.JoinPath(ts.URL, "/value")
+			urlPath, err := url.JoinPath(ts.URL, "/value")
 			require.NoError(t, err)
-			req, err := http.NewRequest(tt.method, URL, buf)
+			req, err := http.NewRequest(tt.method, urlPath, buf)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tt.contentType)
 			req.Header.Set("Content-Encoding", "gzip")
@@ -826,9 +826,9 @@ func TestPingHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			URL, err := url.JoinPath(ts.URL, "/ping")
+			urlPath, err := url.JoinPath(ts.URL, "/ping")
 			require.NoError(t, err)
-			req, err := http.NewRequest(http.MethodGet, URL, http.NoBody)
+			req, err := http.NewRequest(http.MethodGet, urlPath, http.NoBody)
 			require.NoError(t, err)
 			mock.ExpectPing()
 			if tt.forceCloseConnection {

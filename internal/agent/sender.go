@@ -232,7 +232,7 @@ func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *re
 	}
 
 	serverAddr = addDefaultURLSchema(serverAddr)
-	URL, err := url.JoinPath(serverAddr, "/updates")
+	urlPath, err := url.JoinPath(serverAddr, "/updates")
 	if err != nil {
 		return fmt.Errorf("failed to build URL: %w", err)
 	}
@@ -244,7 +244,7 @@ func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *re
 		hashBz := sha256.Sum256(jsonBz)
 		r.SetHeader("HashSHA256", fmt.Sprintf("%x", hashBz))
 	}
-	_, err = r.Post(URL)
+	_, err = r.Post(urlPath)
 	if err != nil {
 		return fmt.Errorf("failed to send the request: %w", err)
 	}
@@ -271,11 +271,11 @@ func compress(data []byte) ([]byte, error) {
 	return gzipBuf.Bytes(), nil
 }
 
-func addDefaultURLSchema(URL string) string {
-	if strings.HasPrefix(URL, "https://") || strings.HasPrefix(URL, "http://") {
-		return URL
+func addDefaultURLSchema(urlPath string) string {
+	if strings.HasPrefix(urlPath, "https://") || strings.HasPrefix(urlPath, "http://") {
+		return urlPath
 	}
-	hp := strings.Split(URL, ":")
+	hp := strings.Split(urlPath, ":")
 	host := hp[0]
 	if len(host) == 0 {
 		host = "localhost"
