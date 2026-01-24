@@ -17,88 +17,187 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
+func int64Pointer(v int64) *int64 {
+	return &v
+}
+
+func float64Pointer(v float64) *float64 {
+	return &v
+}
+
 func TestPollMetrics(t *testing.T) {
 	// Arrange
-	m := metrics{}
-	m.memStat = make(map[string]float64)
+	m := newMetrics()
 
 	// Act
-	pollMetrics(&m)
+	m.pollMetrics()
 
 	// Assert
-	assert.Contains(t, m.memStat, "Alloc")
-	assert.Contains(t, m.memStat, "BuckHashSys")
-	assert.Contains(t, m.memStat, "Frees")
-	assert.Contains(t, m.memStat, "GCCPUFraction")
-	assert.Contains(t, m.memStat, "GCSys")
-	assert.Contains(t, m.memStat, "HeapAlloc")
-	assert.Contains(t, m.memStat, "HeapIdle")
-	assert.Contains(t, m.memStat, "HeapInuse")
-	assert.Contains(t, m.memStat, "HeapObjects")
-	assert.Contains(t, m.memStat, "HeapReleased")
-	assert.Contains(t, m.memStat, "HeapSys")
-	assert.Contains(t, m.memStat, "LastGC")
-	assert.Contains(t, m.memStat, "Lookups")
-	assert.Contains(t, m.memStat, "MCacheInuse")
-	assert.Contains(t, m.memStat, "MCacheSys")
-	assert.Contains(t, m.memStat, "MSpanInuse")
-	assert.Contains(t, m.memStat, "MSpanSys")
-	assert.Contains(t, m.memStat, "Mallocs")
-	assert.Contains(t, m.memStat, "NextGC")
-	assert.Contains(t, m.memStat, "NumForcedGC")
-	assert.Contains(t, m.memStat, "NumGC")
-	assert.Contains(t, m.memStat, "OtherSys")
-	assert.Contains(t, m.memStat, "PauseTotalNs")
-	assert.Contains(t, m.memStat, "StackInuse")
-	assert.Contains(t, m.memStat, "StackSys")
-	assert.Contains(t, m.memStat, "Sys")
-	assert.Contains(t, m.memStat, "TotalAlloc")
+	assert.Contains(t, m.data, "Alloc")
+	assert.Contains(t, m.data, "BuckHashSys")
+	assert.Contains(t, m.data, "Frees")
+	assert.Contains(t, m.data, "GCCPUFraction")
+	assert.Contains(t, m.data, "GCSys")
+	assert.Contains(t, m.data, "HeapAlloc")
+	assert.Contains(t, m.data, "HeapIdle")
+	assert.Contains(t, m.data, "HeapInuse")
+	assert.Contains(t, m.data, "HeapObjects")
+	assert.Contains(t, m.data, "HeapReleased")
+	assert.Contains(t, m.data, "HeapSys")
+	assert.Contains(t, m.data, "LastGC")
+	assert.Contains(t, m.data, "Lookups")
+	assert.Contains(t, m.data, "MCacheInuse")
+	assert.Contains(t, m.data, "MCacheSys")
+	assert.Contains(t, m.data, "MSpanInuse")
+	assert.Contains(t, m.data, "MSpanSys")
+	assert.Contains(t, m.data, "Mallocs")
+	assert.Contains(t, m.data, "NextGC")
+	assert.Contains(t, m.data, "NumForcedGC")
+	assert.Contains(t, m.data, "NumGC")
+	assert.Contains(t, m.data, "OtherSys")
+	assert.Contains(t, m.data, "PauseTotalNs")
+	assert.Contains(t, m.data, "StackInuse")
+	assert.Contains(t, m.data, "StackSys")
+	assert.Contains(t, m.data, "Sys")
+	assert.Contains(t, m.data, "TotalAlloc")
+	assert.Contains(t, m.data, "RandomValue")
+}
+
+func TestPollUtilMetrics(t *testing.T) {
+	// Arrange
+	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	m := newMetrics()
+
+	// Act
+	m.pollUtilMetrics(logger)
+
+	// Assert
+	assert.Contains(t, m.data, "TotalMemory")
+	assert.Contains(t, m.data, "FreeMemory")
+	assert.Contains(t, m.data, "CPUutilization1")
+}
+
+func TestResetPollCount(t *testing.T) {
+	// Arrange
+	m := newMetrics()
+
+	// Act
+	m.resetPollCount()
+
+	// Assert
+	assert.Equal(
+		t,
+		model.Metrics{ID: "PollCount", MType: model.Counter, Value: nil, Delta: int64Pointer(0)},
+		m.data["PollCount"],
+	)
+}
+func TestIncrementPollCount(t *testing.T) {
+	// Arrange
+	m := newMetrics()
+	m.resetPollCount()
+
+	// Act
+	incrementPollCount(m)
+
+	// Assert
+	assert.Equal(
+		t,
+		model.Metrics{ID: "PollCount", MType: model.Counter, Value: nil, Delta: int64Pointer(1)},
+		m.data["PollCount"],
+	)
+}
+
+func TestCopyMetricsAndResetPollCount(t *testing.T) {
+	// Arrange
+	pollCount := int64(10)
+	originalMetrics := &metrics{
+		data: map[string]model.Metrics{
+			"Alloc":     {ID: "Alloc", MType: model.Gauge, Value: float64Pointer(12345)},
+			"PollCount": {ID: "PollCount", MType: model.Counter, Delta: int64Pointer(pollCount)},
+			"HeapAlloc": {ID: "HeapAlloc", MType: model.Gauge, Value: float64Pointer(67890)},
+		},
+	}
+
+	// Act
+	copiedMetrics := originalMetrics.copyMetricsAndResetPollCount()
+
+	// Assert
+	assert.Equal(t, len(originalMetrics.data), len(copiedMetrics))
+	for key, originalMetric := range originalMetrics.data {
+		copiedMetric, exists := copiedMetrics[key]
+		assert.True(t, exists)
+		if key != "PollCount" {
+			assert.Equal(t, originalMetric, copiedMetric)
+		}
+	}
+	assert.Equal(t, pollCount, *copiedMetrics["PollCount"].Delta) // В копии сохранилось значение счетчика PollCount,
+	assert.Zero(t, *originalMetrics.data["PollCount"].Delta)      // но в оригинале оно сбросилось
+
+	copiedMetrics["Alloc"] = model.Metrics{ID: "Alloc", MType: model.Gauge, Value: float64Pointer(54321)}
+	assert.NotEqual(t, originalMetrics.data["Alloc"], copiedMetrics["Alloc"]) // Изменение копии не влияет на оригинал
 }
 
 func TestSendReport(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	sentMetrics := metrics{}
-	sentMetrics.memStat = make(map[string]float64)
-	pollMetrics(&sentMetrics)
+	sentMetrics := newMetrics()
+	sentMetrics.pollMetrics()
 
-	var processedMetricIDs []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Assert
-		assert.Equal(t, "/updates", r.URL.Path)
+	tests := []struct {
+		name                string
+		key                 string
+		wantSignatureHeader bool
+	}{
+		{
+			name:                "with signature",
+			key:                 "secret",
+			wantSignatureHeader: true,
+		},
+		{
+			name:                "without signature",
+			key:                 "",
+			wantSignatureHeader: false,
+		},
+	}
 
-		zr, err := gzip.NewReader(r.Body)
-		require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			var processedMetricIDs []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Assert
+				assert.Equal(t, "/updates", r.URL.Path)
 
-		var receivedMetrics []model.Metrics
-		dec := json.NewDecoder(zr)
-		err = dec.Decode(&receivedMetrics)
-		require.NoError(t, err)
+				if tt.wantSignatureHeader {
+					assert.NotEmpty(t, r.Header.Get("HashSHA256"))
+				} else {
+					assert.Empty(t, r.Header.Get("HashSHA256"))
+				}
 
-		for _, m := range receivedMetrics {
-			assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
-			processedMetricIDs = append(processedMetricIDs, m.ID)
-			switch m.ID {
-			case "PollCount":
-				assert.Equal(t, model.Counter, m.MType)
-				assert.Equal(t, sentMetrics.pollCount, *m.Delta)
-			case "RandomValue":
-				assert.Equal(t, model.Gauge, m.MType)
-				assert.Equal(t, sentMetrics.randomValue, *m.Value)
-			default:
-				assert.Equal(t, model.Gauge, m.MType)
-				assert.Equal(t, sentMetrics.memStat[m.ID], *m.Value)
-			}
-		}
-	}))
-	defer server.Close()
-	httpClient := resty.New()
+				zr, err := gzip.NewReader(r.Body)
+				require.NoError(t, err)
 
-	// Act
-	sendReport(server.URL, &sentMetrics, httpClient, logger)
+				var receivedMetrics []model.Metrics
+				dec := json.NewDecoder(zr)
+				err = dec.Decode(&receivedMetrics)
+				require.NoError(t, err)
 
-	// Assert
-	assert.Equal(t, len(sentMetrics.memStat)+2, len(processedMetricIDs))
+				for _, m := range receivedMetrics {
+					assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
+					processedMetricIDs = append(processedMetricIDs, m.ID)
+					assert.Equal(t, sentMetrics.data[m.ID], m)
+				}
+			}))
+			defer server.Close()
+			httpClient := resty.New()
+
+			// Act
+			err := sendReport(server.URL, tt.key, sentMetrics.data, httpClient)
+			require.NoError(t, err)
+
+			// Assert
+			assert.Equal(t, len(sentMetrics.data), len(processedMetricIDs))
+		})
+	}
 }
 
 func TestAddDefaultSchema(t *testing.T) {
@@ -162,4 +261,15 @@ func TestRetryAfterFunc(t *testing.T) {
 	// Assert (subsequent retries)
 	require.NoError(t, err)
 	assert.Equal(t, 2*time.Second, duration)
+}
+
+func TestRestorePollCount(t *testing.T) {
+	// Arrange
+	sentMetrics := newMetrics()
+
+	// Act
+	sentMetrics.restorePollCount(3)
+
+	// Assert
+	assert.Equal(t, int64(3), *sentMetrics.data["PollCount"].Delta)
 }

@@ -72,7 +72,7 @@ func applyMigrations(db *sqlx.DB) error {
 
 func (app *Application) Run() error {
 	app.logger.Info().Str("address", app.cfg.ServerAddr).Msg("Server started")
-	err := http.ListenAndServe(app.cfg.ServerAddr, handler.MetricRouter(app.storage, app.logger))
+	err := http.ListenAndServe(app.cfg.ServerAddr, handler.MetricRouter(app.storage, app.cfg.Key, app.logger))
 	if !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("HTTP server error: %w", err)
 	}

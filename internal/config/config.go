@@ -15,12 +15,15 @@ const (
 	defaultPollInterval   = 2
 	defaultStoreInterval  = 300
 	defaultRestore        = false
+	defaultRateLimit      = 10
 )
 
 type AgentConfig struct {
 	ServerAddr     string
 	ReportInterval int
 	PollInterval   int
+	Key            string
+	RateLimit      int
 }
 type ServerConfig struct {
 	ServerAddr      string
@@ -28,6 +31,7 @@ type ServerConfig struct {
 	FileStoragePath string
 	Restore         bool
 	DatabaseDSN     string
+	Key             string
 }
 
 func GetServerConfig() (ServerConfig, error) {
@@ -37,6 +41,7 @@ func GetServerConfig() (ServerConfig, error) {
 	fileStoragePathFlag := flag.String("f", "", "путь до файла с метриками")
 	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
 	databaseDSNFlag := flag.String("d", "", "строка подключения к БД")
+	keyFlag := flag.String("k", "", "ключ для подписи запросов")
 	flag.Parse()
 
 	cfg := ServerConfig{}
@@ -57,12 +62,17 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	key, err := getKey(keyFlag)
+	if err != nil {
+		return cfg, err
+	}
 
 	cfg.ServerAddr = serverAddr
 	cfg.StoreInterval = storeInterval
 	cfg.FileStoragePath = fileStoragePath
 	cfg.Restore = restore
 	cfg.DatabaseDSN = databaseDSN
+	cfg.Key = key
 	return cfg, nil
 }
 
@@ -73,7 +83,11 @@ func getStoreInterval(storeIntervalFlag *int) (int, error) {
 	}
 	storeIntervalEnv, err := strconv.Atoi(storeIntervalEnvStr)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert STORE_INTERNAL environment variable to integer: %w", err)
+		return 0, fmt.Errorf(
+			"failed to convert STORE_INTERNAL environment variable value '%s' to integer: %w",
+			storeIntervalEnvStr,
+			err,
+		)
 	}
 	return storeIntervalEnv, nil
 }
@@ -93,7 +107,11 @@ func getRestore(restoreFlag *bool) (bool, error) {
 	}
 	restoreEnv, err := strconv.ParseBool(restoreEnvStr)
 	if err != nil {
-		return false, fmt.Errorf("failed to convert RESTORE environment variable to boolean: %w", err)
+		return false, fmt.Errorf(
+			"failed to convert RESTORE environment variable value '%s' to boolean: %w",
+			restoreEnvStr,
+			err,
+		)
 	}
 	return restoreEnv, nil
 }
@@ -147,6 +165,8 @@ func GetAgentConfig() (AgentConfig, error) {
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
 	reportIntervalFlag := flag.Int("r", defaultReportInterval, "частота отправки метрик на сервер")
 	pollIntervalFlag := flag.Int("p", defaultPollInterval, "частота опроса метрик из пакета runtime")
+	keyFlag := flag.String("k", "", "ключ для подписи запросов")
+	rateLimitFlag := flag.Int("l", defaultRateLimit, "количество одновременно исходящих запросов агента на сервер")
 	flag.Parse()
 
 	cfg := AgentConfig{}
@@ -162,10 +182,20 @@ func GetAgentConfig() (AgentConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	key, err := getKey(keyFlag)
+	if err != nil {
+		return cfg, err
+	}
+	rateLimit, err := getRateLimit(rateLimitFlag)
+	if err != nil {
+		return cfg, err
+	}
 
 	cfg.ServerAddr = serverAddr
 	cfg.ReportInterval = reportInterval
 	cfg.PollInterval = pollInterval
+	cfg.Key = key
+	cfg.RateLimit = rateLimit
 	return cfg, nil
 }
 
@@ -176,7 +206,11 @@ func getReportInterval(reportIntervalFlag *int) (int, error) {
 	}
 	reportIntervalEnv, err := strconv.Atoi(reportIntervalEnvStr)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert REPORT_INTERVAL environment variable to integer: %w", err)
+		return 0, fmt.Errorf(
+			"failed to convert REPORT_INTERVAL environment variable value '%s' to integer: %w",
+			reportIntervalEnvStr,
+			err,
+		)
 	}
 	return reportIntervalEnv, nil
 }
@@ -188,7 +222,35 @@ func getPollInterval(pollIntervalFlag *int) (int, error) {
 	}
 	pollIntervalEnv, err := strconv.Atoi(pollIntervalEnvStr)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert POLL_INTERVAL environment variable to integer: %w", err)
+		return 0, fmt.Errorf(
+			"failed to convert POLL_INTERVAL environment variable value '%s' to integer: %w",
+			pollIntervalEnvStr,
+			err,
+		)
 	}
 	return pollIntervalEnv, nil
+}
+
+func getKey(keyFlag *string) (string, error) {
+	keyEnvStr, ok := os.LookupEnv("KEY")
+	if !ok {
+		return *keyFlag, nil
+	}
+	return keyEnvStr, nil
+}
+
+func getRateLimit(rateLimitFlag *int) (int, error) {
+	rateLimitEnvStr, ok := os.LookupEnv("RATE_LIMIT")
+	if !ok {
+		return *rateLimitFlag, nil
+	}
+	rateLimitEnv, err := strconv.Atoi(rateLimitEnvStr)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"failed to convert RATE_LIMIT environment variable value '%s' to integer: %w",
+			rateLimitEnvStr,
+			err,
+		)
+	}
+	return rateLimitEnv, nil
 }

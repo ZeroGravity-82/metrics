@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
@@ -15,29 +16,27 @@ import (
 type FileStorage struct {
 	MemStorage
 	file *os.File
+	mu   sync.Mutex
 }
 
 func NewFileStorage(cfg config.ServerConfig) (*FileStorage, error) {
-	ms := MemStorage{
-		metrics: make(map[string]model.Metrics),
-	}
 	file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the file with metrics: %w", err)
 	}
 	fs := FileStorage{
-		MemStorage: ms,
+		MemStorage: *NewMemStorage(),
 		file:       file,
 	}
 	if cfg.Restore {
-		if err := restoreMetrics(ms, file); err != nil {
+		if err := restoreMetrics(fs.metrics, file); err != nil {
 			return nil, err
 		}
 	}
 	return &fs, nil
 }
 
-func restoreMetrics(ms MemStorage, file *os.File) error {
+func restoreMetrics(metrics map[string]model.Metrics, file *os.File) error {
 	reader := bufio.NewReader(file)
 	data, err := io.ReadAll(reader)
 	if err != nil {
@@ -51,7 +50,7 @@ func restoreMetrics(ms MemStorage, file *os.File) error {
 		return fmt.Errorf("failed to unmarshall metrics read from the file: %w", err)
 	}
 	for _, m := range metricSlice {
-		ms.metrics[m.ID] = m
+		metrics[m.ID] = m
 	}
 	return nil
 }
@@ -64,23 +63,26 @@ func (fs *FileStorage) UpdateMetric(ctx context.Context, m model.Metrics) error 
 	if err != nil {
 		return err
 	}
-	return storeMetrics(metrics, fs.file)
+	return fs.storeMetrics(metrics)
 }
 
-func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
+func (fs *FileStorage) storeMetrics(metrics map[string]model.Metrics) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
 	metricSlice := make([]model.Metrics, 0, len(metrics))
 	for _, m := range metrics {
 		metricSlice = append(metricSlice, m)
 	}
 
-	if err := file.Truncate(0); err != nil {
+	if err := fs.file.Truncate(0); err != nil {
 		return fmt.Errorf("failed to truncate the file before storing: %w", err)
 	}
-	if _, err := file.Seek(0, 0); err != nil {
+	if _, err := fs.file.Seek(0, 0); err != nil {
 		return fmt.Errorf("failed to seek to the beginning of the file before storing: %w", err)
 	}
 
-	writer := bufio.NewWriter(file)
+	writer := bufio.NewWriter(fs.file)
 	data, err := json.Marshal(metricSlice)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metrics before storing: %w", err)
@@ -91,7 +93,6 @@ func storeMetrics(metrics map[string]model.Metrics, file *os.File) error {
 	if err := writer.Flush(); err != nil {
 		return fmt.Errorf("failed to flush to the file remaining metrics: %w", err)
 	}
-
 	return nil
 }
 
@@ -103,7 +104,7 @@ func (fs *FileStorage) UpdateMetrics(ctx context.Context, metrics []model.Metric
 	if err != nil {
 		return err
 	}
-	return storeMetrics(metricsMap, fs.file)
+	return fs.storeMetrics(metricsMap)
 }
 
 func (fs *FileStorage) Ping(_ context.Context) error {

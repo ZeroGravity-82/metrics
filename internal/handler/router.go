@@ -1,12 +1,17 @@
 package handler
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"slices"
 	"strconv"
@@ -30,13 +35,16 @@ type Storage interface {
 	Close() error
 }
 
-func MetricRouter(s Storage, logger zerolog.Logger) chi.Router {
+func MetricRouter(s Storage, key string, logger zerolog.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
 		withLogging(logger),
 		withGzip(logger),
 	)
+	if key != "" {
+		r.Use(withSignature(key, logger))
+	}
 	textPlainContentType := middleware.AllowContentType("text/plain")
 	r.With(textPlainContentType).Post(
 		"/update/{mType}/{mName}/{mValue}",
@@ -65,11 +73,8 @@ func withLogging(logger zerolog.Logger) func(next http.Handler) http.Handler {
 				status: http.StatusOK,
 				size:   0,
 			}
-			lw := loggingResponseWriter{
-				ResponseWriter: w,
-				responseData:   responseData,
-			}
-			next.ServeHTTP(&lw, r)
+			lw := newLoggingResponseWriter(w, responseData)
+			next.ServeHTTP(lw, r)
 
 			duration := time.Since(start)
 			logger.Info().
@@ -83,6 +88,52 @@ func withLogging(logger zerolog.Logger) func(next http.Handler) http.Handler {
 	}
 }
 
+func withSignature(key string, logger zerolog.Logger) func(next http.Handler) http.Handler {
+	const signatureHeaderName = "HashSHA256"
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("unable to read request body: %s", err.Error()), http.StatusBadRequest)
+				return
+			}
+			if len(body) > 0 {
+				if r.Header.Get(signatureHeaderName) == "" {
+					http.Error(w, fmt.Sprintf("header %s is not provided", signatureHeaderName), http.StatusBadRequest)
+					return
+				}
+				err = validateSignature(r.Header.Get(signatureHeaderName), body, key)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+			}
+			r.Body = io.NopCloser(bytes.NewBuffer(body))
+			ow := newSigningResponseWriter(w, key, logger)
+			next.ServeHTTP(ow, r)
+		})
+	}
+}
+
+func validateSignature(signature string, body []byte, key string) error {
+	decodedSig, err := hex.DecodeString(signature)
+	if err != nil {
+		return fmt.Errorf("unable to decode signature string: %w", err)
+	}
+	if !hmac.Equal(generateSignature(body, key), decodedSig) {
+		return errors.New("invalid request signature")
+	}
+
+	return nil
+}
+
+func generateSignature(data []byte, key string) []byte {
+	h := hmac.New(sha256.New, []byte(key))
+	h.Write(data)
+	return h.Sum(nil)
+}
+
 func withGzip(logger zerolog.Logger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -90,16 +141,15 @@ func withGzip(logger zerolog.Logger) func(next http.Handler) http.Handler {
 			acceptEncoding := r.Header.Get("Accept-Encoding")
 			supportGzip := strings.Contains(acceptEncoding, "gzip")
 			if supportGzip {
-				cw := newCompressWriter(w)
+				cw := newCompressResponseWriter(w)
 				defer cw.Close()
-				cw.Header().Set("Content-Encoding", "gzip")
 				ow = cw
 			}
 
 			contentEncoding := r.Header.Get("Content-Encoding")
 			sendsGzip := strings.Contains(contentEncoding, "gzip")
 			if sendsGzip {
-				cr, err := newCompressReader(r.Body)
+				cr, err := newCompressRequestReader(r.Body)
 				if err != nil {
 					if errors.Is(err, gzip.ErrChecksum) || errors.Is(err, gzip.ErrHeader) {
 						ow.WriteHeader(http.StatusBadRequest)
@@ -112,7 +162,6 @@ func withGzip(logger zerolog.Logger) func(next http.Handler) http.Handler {
 				defer cr.Close()
 				r.Body = cr
 			}
-
 			next.ServeHTTP(ow, r)
 		})
 	}
@@ -144,6 +193,7 @@ func updateMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -196,6 +246,7 @@ func updateHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -223,6 +274,7 @@ func updatesHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -256,6 +308,7 @@ func getMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			http.Error(w, fmt.Sprintf("unsupported metric type: %s", mType), http.StatusBadRequest)
 			return
 		}
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -282,6 +335,7 @@ func getHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 		if err := enc.Encode(metric); err != nil {
 			logWriteResponseError(err, logger)
 		}
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -348,6 +402,7 @@ func getMetricListHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 		if err := t.Execute(w, data); err != nil {
 			logWriteResponseError(err, logger)
 		}
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -369,5 +424,6 @@ func pingHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		w.WriteHeader(http.StatusOK)
 	}
 }
