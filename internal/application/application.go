@@ -1,9 +1,9 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"net/http"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -11,16 +11,21 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/errgroup"
 
 	"zerogravity-82/metrics/internal/config"
-	"zerogravity-82/metrics/internal/handler"
+	"zerogravity-82/metrics/internal/httpserver"
+	"zerogravity-82/metrics/internal/httpserver/handler"
 	"zerogravity-82/metrics/internal/repository"
+	"zerogravity-82/metrics/internal/service/audit"
 )
 
 type Application struct {
-	logger  zerolog.Logger
-	cfg     config.ServerConfig
-	storage handler.Storage
+	logger         zerolog.Logger
+	cfg            config.ServerConfig
+	storage        handler.Storage
+	srv            *httpserver.HTTPServer
+	auditPublisher *audit.AsyncPublisher
 }
 
 func NewApplication(logger zerolog.Logger) (*Application, error) {
@@ -48,10 +53,15 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 	} else {
 		storage = repository.NewMemStorage()
 	}
+	publisher := buildAuditPublisher(cfg, logger)
+	srv := httpserver.NewHTTPServer(cfg.ServerAddr, storage, publisher, cfg.Key, logger)
+
 	return &Application{
-		logger:  logger,
-		cfg:     cfg,
-		storage: storage,
+		logger:         logger,
+		cfg:            cfg,
+		storage:        storage,
+		srv:            srv,
+		auditPublisher: publisher,
 	}, nil
 }
 
@@ -70,17 +80,26 @@ func applyMigrations(db *sqlx.DB) error {
 	return nil
 }
 
-func (app *Application) Run() error {
-	app.logger.Info().Str("address", app.cfg.ServerAddr).Msg("Server started")
-	err := http.ListenAndServe(app.cfg.ServerAddr, handler.MetricRouter(app.storage, app.cfg.Key, app.logger))
-	if !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("HTTP server error: %w", err)
-	}
-	return nil
+func (app *Application) Run(ctx context.Context) error {
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error { return app.srv.Run(app.logger) })
+	eg.Go(func() error { app.auditPublisher.Run(ctx); return nil })
+	return eg.Wait()
 }
 
 func (app *Application) Close() {
 	if err := app.storage.Close(); err != nil {
 		app.logger.Error().Msg(err.Error())
 	}
+}
+
+func buildAuditPublisher(cfg config.ServerConfig, logger zerolog.Logger) *audit.AsyncPublisher {
+	var observers []audit.Observer
+	if cfg.AuditFile != "" {
+		observers = append(observers, audit.NewFileObserver(cfg.AuditFile))
+	}
+	if cfg.AuditURL != "" {
+		observers = append(observers, audit.NewHTTPObserver(cfg.AuditURL))
+	}
+	return audit.NewAsyncPublisher(logger, observers...)
 }

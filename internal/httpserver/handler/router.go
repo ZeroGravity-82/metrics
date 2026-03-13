@@ -35,10 +35,15 @@ type Storage interface {
 	Close() error
 }
 
-func MetricRouter(s Storage, key string, logger zerolog.Logger) chi.Router {
+type AuditPublisher interface {
+	PublishLog(ctx context.Context, now time.Time, ip string, models ...model.Metrics)
+}
+
+func MetricRouter(s Storage, a AuditPublisher, key string, logger zerolog.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
+		middleware.RealIP,
 		withLogging(logger),
 		withGzip(logger),
 	)
@@ -48,14 +53,14 @@ func MetricRouter(s Storage, key string, logger zerolog.Logger) chi.Router {
 	textPlainContentType := middleware.AllowContentType("text/plain")
 	r.With(textPlainContentType).Post(
 		"/update/{mType}/{mName}/{mValue}",
-		updateMetricHandler(s, logger),
+		updateMetricHandler(s, a, logger),
 	)
 	r.With(textPlainContentType).Get("/value/{mType}/{mName}", getMetricHandler(s, logger))
 	r.With(textPlainContentType).Get("/", getMetricListHandler(s, logger))
 
 	applicationJSONContentType := middleware.AllowContentType("application/json")
-	r.With(applicationJSONContentType).Post("/update", updateHandler(s, logger))
-	r.With(applicationJSONContentType).Post("/updates", updatesHandler(s, logger))
+	r.With(applicationJSONContentType).Post("/update", updateHandler(s, a, logger))
+	r.With(applicationJSONContentType).Post("/updates", updatesHandler(s, a, logger))
 	r.With(applicationJSONContentType).Post("/value", getHandler(s, logger))
 
 	r.Get("/ping", pingHandler(s, logger))
@@ -167,7 +172,7 @@ func withGzip(logger zerolog.Logger) func(next http.Handler) http.Handler {
 	}
 }
 
-func updateMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
+func updateMetricHandler(s Storage, a AuditPublisher, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		mType := chi.URLParam(r, "mType")
 		mName := chi.URLParam(r, "mName")
@@ -194,6 +199,8 @@ func updateMetricHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+
+		a.PublishLog(r.Context(), time.Now(), r.RemoteAddr, m)
 	}
 }
 
@@ -222,7 +229,7 @@ func buildMetric(mType, mName, mValue string) (model.Metrics, error) {
 	return m, nil
 }
 
-func updateHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
+func updateHandler(s Storage, a AuditPublisher, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var metric model.Metrics
 		dec := json.NewDecoder(r.Body)
@@ -247,10 +254,12 @@ func updateHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+
+		a.PublishLog(r.Context(), time.Now(), r.RemoteAddr, metric)
 	}
 }
 
-func updatesHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
+func updatesHandler(s Storage, a AuditPublisher, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var metrics []model.Metrics
 		dec := json.NewDecoder(r.Body)
@@ -275,6 +284,8 @@ func updatesHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+
+		a.PublishLog(r.Context(), time.Now(), r.RemoteAddr, metrics...)
 	}
 }
 
@@ -411,7 +422,7 @@ func logWriteResponseError(err error, logger zerolog.Logger) {
 }
 
 func logError(err error, msg string, logger zerolog.Logger) {
-	logger.Error().Str("error", err.Error()).Msg(msg)
+	logger.Error().Err(err).Msg(msg)
 }
 
 func pingHandler(s Storage, logger zerolog.Logger) http.HandlerFunc {

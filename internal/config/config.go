@@ -32,6 +32,8 @@ type ServerConfig struct {
 	Restore         bool
 	DatabaseDSN     string
 	Key             string
+	AuditFile       string
+	AuditURL        string
 }
 
 func GetServerConfig() (ServerConfig, error) {
@@ -42,6 +44,8 @@ func GetServerConfig() (ServerConfig, error) {
 	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
 	databaseDSNFlag := flag.String("d", "", "строка подключения к БД")
 	keyFlag := flag.String("k", "", "ключ для подписи запросов")
+	auditFileFlag := flag.String("audit-file", "", "путь к файлу с логами аудита")
+	auditURLFlag := flag.String("audit-url", "", "полный URL для отправки логов аудита")
 	flag.Parse()
 
 	cfg := ServerConfig{}
@@ -66,6 +70,14 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	auditFile, err := getAuditFile(auditFileFlag)
+	if err != nil {
+		return cfg, err
+	}
+	auditURL, err := getAuditURL(auditURLFlag)
+	if err != nil {
+		return cfg, err
+	}
 
 	cfg.ServerAddr = serverAddr
 	cfg.StoreInterval = storeInterval
@@ -73,6 +85,8 @@ func GetServerConfig() (ServerConfig, error) {
 	cfg.Restore = restore
 	cfg.DatabaseDSN = databaseDSN
 	cfg.Key = key
+	cfg.AuditFile = auditFile
+	cfg.AuditURL = auditURL
 	return cfg, nil
 }
 
@@ -237,6 +251,22 @@ func getKey(keyFlag *string) (string, error) {
 		return *keyFlag, nil
 	}
 	return keyEnvStr, nil
+}
+
+func getAuditFile(auditFileFlag *string) (string, error) {
+	auditFileEnvStr, ok := os.LookupEnv("AUDIT_FILE")
+	if !ok {
+		return *auditFileFlag, nil
+	}
+	return auditFileEnvStr, nil
+}
+
+func getAuditURL(auditURLFlag *string) (string, error) {
+	auditURLEnvStr, ok := os.LookupEnv("AUDIT_URL")
+	if !ok {
+		return *auditURLFlag, nil
+	}
+	return auditURLEnvStr, nil
 }
 
 func getRateLimit(rateLimitFlag *int) (int, error) {
