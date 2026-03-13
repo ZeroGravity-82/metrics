@@ -104,14 +104,14 @@ func (m *metrics) pollUtilMetrics(logger zerolog.Logger) {
 	defer m.mu.Unlock()
 
 	if vm, err := mem.VirtualMemory(); err != nil {
-		logger.Error().Str("error", err.Error()).Msg("Error on polling virtual memory")
+		logger.Error().Err(err).Msg("Error on polling virtual memory")
 
 	} else {
 		m.data["TotalMemory"] = convertUint64ToGaugeMetric("TotalMemory", vm.Total)
 		m.data["FreeMemory"] = convertUint64ToGaugeMetric("FreeMemory", vm.Free)
 	}
 	if pct, err := cpu.Percent(0, true); err != nil {
-		logger.Error().Str("error", err.Error()).Msg("Error on polling CPU utilization")
+		logger.Error().Err(err).Msg("Error on polling CPU utilization")
 	} else {
 		for i, p := range pct {
 			name := fmt.Sprintf("CPUutilization%d", i+1)
@@ -182,7 +182,7 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 
 				mCopy := m.copyMetricsAndResetPollCount()
 				if err := sendReport(cfg.ServerAddr, cfg.Key, mCopy, httpClient); err != nil {
-					logger.Error().Str("error", err.Error()).Msg("Error on sending metrics")
+					logger.Error().Err(err).Msg("Error on sending metrics")
 
 					// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
 					// возвращается в структуру metrics

@@ -13,7 +13,7 @@ func main() {
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	cfg, err := config.GetAgentConfig()
 	if err != nil {
-		logger.Fatal().Str("error", err.Error()).Msg("Config error")
+		logger.Fatal().Err(err).Msg("Config error")
 	}
 
 	agent.Run(cfg, logger)
