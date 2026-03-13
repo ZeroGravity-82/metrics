@@ -41,7 +41,7 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 		}
 		storage = repository.NewDBStorage(db)
 	} else if cfg.FileStoragePath != "" {
-		storage, err = repository.NewFileStorage(cfg)
+		storage, err = repository.NewFileStorage(cfg.FileStoragePath, cfg.Restore)
 		if err != nil {
 			return nil, fmt.Errorf("storage error: %w", err)
 		}

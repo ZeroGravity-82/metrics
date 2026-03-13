@@ -9,7 +9,6 @@ import (
 	"os"
 	"sync"
 
-	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 )
 
@@ -19,8 +18,8 @@ type FileStorage struct {
 	mu   sync.Mutex
 }
 
-func NewFileStorage(cfg config.ServerConfig) (*FileStorage, error) {
-	file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDWR|os.O_CREATE, 0666)
+func NewFileStorage(fileStoragePath string, restore bool) (*FileStorage, error) {
+	file, err := os.OpenFile(fileStoragePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the file with metrics: %w", err)
 	}
@@ -28,7 +27,7 @@ func NewFileStorage(cfg config.ServerConfig) (*FileStorage, error) {
 		MemStorage: *NewMemStorage(),
 		file:       file,
 	}
-	if cfg.Restore {
+	if restore {
 		if err := restoreMetrics(fs.metrics, file); err != nil {
 			return nil, err
 		}
