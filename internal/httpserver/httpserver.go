@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -35,14 +36,14 @@ func NewHTTPServer(
 	}
 }
 
-func (s *HTTPServer) Run(logger zerolog.Logger) error {
-	logger.Info().Str("address", s.addr).Msg("Server started")
+func (s *HTTPServer) Run(_ context.Context) error {
+	s.logger.Info().Str("address", s.addr).Msg("http server started")
 	err := http.ListenAndServe(
 		s.addr,
 		handler.MetricRouter(s.storage, s.auditPublisher, s.key, s.logger),
 	)
 	if !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("HTTP server error: %w", err)
+		return fmt.Errorf("http server error: %w", err)
 	}
 	return nil
 }

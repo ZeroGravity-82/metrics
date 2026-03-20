@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"flag"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -33,10 +31,7 @@ func float64Pointer(v float64) *float64 {
 
 func TestUpdateMetricHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
 	key := ""
@@ -183,10 +178,7 @@ func TestUpdateMetricHandler(t *testing.T) {
 
 func TestUpdateHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
 	key := ""
@@ -355,10 +347,7 @@ func compressWithGzip(body string) (*bytes.Buffer, error) {
 
 func TestUpdatesHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
 	key := ""
@@ -515,10 +504,7 @@ func TestUpdatesHandler(t *testing.T) {
 }
 func TestGetMetricHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
 	key := ""
@@ -611,10 +597,7 @@ func TestGetMetricHandler(t *testing.T) {
 
 func TestGetHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
 	key := ""
@@ -737,10 +720,7 @@ func TestGetHandler(t *testing.T) {
 
 func TestGetMetricListHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
 	key := ""
@@ -800,10 +780,7 @@ func TestGetMetricListHandler(t *testing.T) {
 
 func TestPingHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	require.NoError(t, err)
 	defer db.Close()

@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -20,7 +19,7 @@ func TestSigningResponseWriter(t *testing.T) {
 	// Arrange
 	recorder := httptest.NewRecorder()
 	key := "testkey"
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	logger := zerolog.Nop()
 	writer := newSigningResponseWriter(recorder, key, logger)
 	data1 := []byte("Hello, ")
 	data2 := []byte("World!")
@@ -48,7 +47,7 @@ func TestSigningResponseWriter_EmptyBody(t *testing.T) {
 	// Arrange
 	recorder := httptest.NewRecorder()
 	key := "testkey"
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	logger := zerolog.Nop()
 	writer := newSigningResponseWriter(recorder, key, logger)
 
 	// Act
@@ -63,7 +62,7 @@ func TestSigningResponseWriter_EmptyKey(t *testing.T) {
 	// Arrange
 	recorder := httptest.NewRecorder()
 	key := ""
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	logger := zerolog.Nop()
 	writer := newSigningResponseWriter(recorder, key, logger)
 	data := []byte("Hello, World!")
 

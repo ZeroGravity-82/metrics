@@ -34,6 +34,7 @@ type ServerConfig struct {
 	Key             string
 	AuditFile       string
 	AuditURL        string
+	PprofAddr       string
 }
 
 func GetServerConfig() (ServerConfig, error) {
@@ -46,6 +47,7 @@ func GetServerConfig() (ServerConfig, error) {
 	keyFlag := flag.String("k", "", "ключ для подписи запросов")
 	auditFileFlag := flag.String("audit-file", "", "путь к файлу с логами аудита")
 	auditURLFlag := flag.String("audit-url", "", "полный URL для отправки логов аудита")
+	pprofAddrFlag := flag.String("pprof", "", "адрес pprof-сервера")
 	flag.Parse()
 
 	cfg := ServerConfig{}
@@ -78,6 +80,7 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	pprofAddr := getPprofAddr(pprofAddrFlag)
 
 	cfg.ServerAddr = serverAddr
 	cfg.StoreInterval = storeInterval
@@ -87,6 +90,7 @@ func GetServerConfig() (ServerConfig, error) {
 	cfg.Key = key
 	cfg.AuditFile = auditFile
 	cfg.AuditURL = auditURL
+	cfg.PprofAddr = pprofAddr
 	return cfg, nil
 }
 
@@ -267,6 +271,14 @@ func getAuditURL(auditURLFlag *string) (string, error) {
 		return *auditURLFlag, nil
 	}
 	return auditURLEnvStr, nil
+}
+
+func getPprofAddr(pprofAddrFlag *string) string {
+	pprofAddrEnvStr, ok := os.LookupEnv("PPROF_ADDR")
+	if !ok {
+		return *pprofAddrFlag
+	}
+	return pprofAddrEnvStr
 }
 
 func getRateLimit(rateLimitFlag *int) (int, error) {

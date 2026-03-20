@@ -24,7 +24,8 @@ type Application struct {
 	logger         zerolog.Logger
 	cfg            config.ServerConfig
 	storage        handler.Storage
-	srv            *httpserver.HTTPServer
+	httpSrv        *httpserver.HTTPServer
+	pprofSrv       *httpserver.PprofServer
 	auditPublisher *audit.AsyncPublisher
 }
 
@@ -54,13 +55,15 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 		storage = repository.NewMemStorage()
 	}
 	publisher := buildAuditPublisher(cfg, logger)
-	srv := httpserver.NewHTTPServer(cfg.ServerAddr, storage, publisher, cfg.Key, logger)
+	httpSrv := httpserver.NewHTTPServer(cfg.ServerAddr, storage, publisher, cfg.Key, logger)
+	pprofSrv := httpserver.NewPprofServer(cfg.PprofAddr, logger)
 
 	return &Application{
 		logger:         logger,
 		cfg:            cfg,
 		storage:        storage,
-		srv:            srv,
+		httpSrv:        httpSrv,
+		pprofSrv:       pprofSrv,
 		auditPublisher: publisher,
 	}, nil
 }
@@ -82,7 +85,8 @@ func applyMigrations(db *sqlx.DB) error {
 
 func (app *Application) Run(ctx context.Context) error {
 	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error { return app.srv.Run(app.logger) })
+	eg.Go(func() error { return app.httpSrv.Run(ctx) })
+	eg.Go(func() error { return app.pprofSrv.Run(ctx) })
 	eg.Go(func() error { app.auditPublisher.Run(ctx); return nil })
 	return eg.Wait()
 }
