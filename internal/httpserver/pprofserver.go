@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
+
 	"zerogravity-82/metrics/internal/httpserver/handler"
 
 	"github.com/rs/zerolog"
