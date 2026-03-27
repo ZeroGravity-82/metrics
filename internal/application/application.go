@@ -1,3 +1,4 @@
+// Пакет application собирает и запускает основные компоненты сервиса.
 package application
 
 import (
@@ -20,6 +21,9 @@ import (
 	"zerogravity-82/metrics/internal/service/audit"
 )
 
+// Application связывает конфигурацию, хранилище, аудитора запросов и HTTP-сервера в единый сервис.
+//
+// Используется в cmd/server для сборки и запуска сервиса.
 type Application struct {
 	logger         zerolog.Logger
 	cfg            config.ServerConfig
@@ -29,6 +33,7 @@ type Application struct {
 	auditPublisher *audit.AsyncPublisher
 }
 
+// NewApplication собирает Application с учетом настроек из переменных окружения и флагов.
 func NewApplication(logger zerolog.Logger) (*Application, error) {
 	cfg, err := config.GetServerConfig()
 	if err != nil {
@@ -83,6 +88,7 @@ func applyMigrations(db *sqlx.DB) error {
 	return nil
 }
 
+// Run запускает основные подсистемы сервиса и ждет их завершения.
 func (app *Application) Run(ctx context.Context) error {
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error { return app.httpSrv.Run(ctx) })
@@ -91,6 +97,7 @@ func (app *Application) Run(ctx context.Context) error {
 	return eg.Wait()
 }
 
+// Close освобождает ресурсы сервиса.
 func (app *Application) Close() {
 	if err := app.storage.Close(); err != nil {
 		app.logger.Error().Msg(err.Error())

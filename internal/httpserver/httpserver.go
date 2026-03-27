@@ -12,6 +12,9 @@ import (
 	"zerogravity-82/metrics/internal/service/audit"
 )
 
+// HTTPServer - основной API-сервер сервиса метрик.
+//
+// Он запускает роутер, собранный handler.MetricRouter, на указанном адресе.
 type HTTPServer struct {
 	addr           string
 	storage        handler.Storage
@@ -20,6 +23,7 @@ type HTTPServer struct {
 	logger         zerolog.Logger
 }
 
+// NewHTTPServer создает новый HTTPServer.
 func NewHTTPServer(
 	addr string,
 	storage handler.Storage,
@@ -36,6 +40,7 @@ func NewHTTPServer(
 	}
 }
 
+// Run запускает HTTP-сервер и блокируется до ошибки.
 func (s *HTTPServer) Run(_ context.Context) error {
 	s.logger.Info().Str("address", s.addr).Msg("http server started")
 	err := http.ListenAndServe(

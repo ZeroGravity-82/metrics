@@ -12,12 +12,16 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
+// FileStorage - персистентное хранилище, которое держит метрики в памяти и при обновлениях сбрасывает их в JSON-файл.
+//
+// Реализует интерфейс handler.Storage.
 type FileStorage struct {
 	MemStorage
 	file *os.File
 	mu   sync.Mutex
 }
 
+// NewFileStorage открывает/создает файл по fileStoragePath и опционально восстанавливает метрики из него.
 func NewFileStorage(fileStoragePath string, restore bool) (*FileStorage, error) {
 	file, err := os.OpenFile(fileStoragePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
@@ -54,6 +58,7 @@ func restoreMetrics(metrics map[string]model.Metrics, file *os.File) error {
 	return nil
 }
 
+// UpdateMetric обновляет одну метрику и сохраняет в файл.
 func (fs *FileStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
 	if err := fs.MemStorage.UpdateMetric(ctx, m); err != nil {
 		return err
@@ -95,6 +100,7 @@ func (fs *FileStorage) storeMetrics(metrics map[string]model.Metrics) error {
 	return nil
 }
 
+// UpdateMetrics обновляет несколько метрик и сохраняет в файл.
 func (fs *FileStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
 	if err := fs.MemStorage.UpdateMetrics(ctx, metrics); err != nil {
 		return err
@@ -106,10 +112,12 @@ func (fs *FileStorage) UpdateMetrics(ctx context.Context, metrics []model.Metric
 	return fs.storeMetrics(metricsMap)
 }
 
+// Ping для FileStorage всегда успешный.
 func (fs *FileStorage) Ping(_ context.Context) error {
 	return nil
 }
 
+// Close закрывает файл хранилища.
 func (fs *FileStorage) Close() error {
 	return fs.file.Close()
 }

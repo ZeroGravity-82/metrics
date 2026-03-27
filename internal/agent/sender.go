@@ -141,6 +141,9 @@ func (m *metrics) restorePollCount(delta int64) {
 	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
 }
 
+// Run запускает цикл опроса метрик и периодически отправляет их на сервер.
+//
+// Функция блокируется, пока процесс не будет остановлен.
 func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 	m := newMetrics()
 
@@ -201,7 +204,7 @@ func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Durati
 	)
 
 	var retryCount int
-	return func(client *resty.Client, r *resty.Response) (time.Duration, error) {
+	return func(_ *resty.Client, r *resty.Response) (time.Duration, error) {
 		if retryCount == 0 {
 			retryCount++
 			return firstRetryDelay, nil
@@ -262,6 +265,7 @@ func marshal(metrics []model.Metrics) ([]byte, error) {
 func compress(data []byte) ([]byte, error) {
 	var gzipBuf bytes.Buffer
 	zw := gzip.NewWriter(&gzipBuf)
+
 	if _, err := zw.Write(data); err != nil {
 		return nil, fmt.Errorf("failed to gzip data: %w", err)
 	}

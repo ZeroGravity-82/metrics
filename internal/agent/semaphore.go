@@ -1,23 +1,25 @@
 package agent
 
-// Semaphore структура семафора
+// Semaphore - семафор для ограничения конкурентных операций агента.
+//
+// Используется агентом, чтобы ограничить количество одновременно выполняющихся HTTP-запросов.
 type Semaphore struct {
 	semaCh chan struct{}
 }
 
-// NewSemaphore создает семафор емкостью maxReq
+// NewSemaphore создает семафор емкостью maxReq.
 func NewSemaphore(maxReq int) *Semaphore {
 	return &Semaphore{
 		semaCh: make(chan struct{}, maxReq),
 	}
 }
 
-// Acquire пытается получить доступ к семафору
+// Acquire пытается получить доступ к семафору.
 func (s *Semaphore) Acquire() {
 	s.semaCh <- struct{}{}
 }
 
-// Release освобождает семафор
+// Release освобождает семафор.
 func (s *Semaphore) Release() {
 	<-s.semaCh
 }

@@ -26,6 +26,7 @@ import (
 	"zerogravity-82/metrics/internal/repository"
 )
 
+// Storage абстрагирует хранилище метрик, используемое хендлерами.
 type Storage interface {
 	UpdateMetric(ctx context.Context, m model.Metrics) error
 	UpdateMetrics(ctx context.Context, metrics []model.Metrics) error
@@ -35,10 +36,24 @@ type Storage interface {
 	Close() error
 }
 
+// AuditPublisher публикует события аудита об успешных обновлениях метрик.
 type AuditPublisher interface {
 	PublishLog(ctx context.Context, now time.Time, ip string, models ...model.Metrics)
 }
 
+// MetricRouter собирает и возвращает HTTP-роутер сервиса метрик.
+//
+// Доступные ручки:
+//
+//	POST /update/{type}/{name}/{value}
+//	GET  /value/{type}/{name}
+//	GET  /
+//	POST /update
+//	POST /updates
+//	POST /value
+//	GET  /ping
+//
+// Если key не пустой, включается middleware подписи запросов/ответов.
 func MetricRouter(s Storage, a AuditPublisher, key string, logger zerolog.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(

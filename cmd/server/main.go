@@ -1,3 +1,4 @@
+// Команда server запускает HTTP-сервер сервиса метрик.
 package main
 
 import (

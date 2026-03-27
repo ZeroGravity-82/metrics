@@ -1,3 +1,4 @@
+// Команда agent запускает агент сбора метрик.
 package main
 
 import (

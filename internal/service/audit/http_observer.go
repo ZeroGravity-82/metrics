@@ -11,12 +11,13 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
-// HTTPObserver отправляет сообщение события аудита POST-запросом в удаленный приёмник.
+// HTTPObserver отправляет сообщение события аудита POST-запросом в удаленный приемник.
 type HTTPObserver struct {
 	url    string
 	client *http.Client
 }
 
+// NewHTTPObserver создает HTTPObserver с указанным URL удаленного приемника.
 func NewHTTPObserver(url string) *HTTPObserver {
 	return &HTTPObserver{url: url, client: &http.Client{Timeout: 3 * time.Second}}
 }

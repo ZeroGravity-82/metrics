@@ -1,3 +1,5 @@
+// Пакет config содержит структуры конфигурации и функции загрузки настроек агента и сервера из флагов и переменных
+// окружения.
 package config
 
 import (
@@ -18,25 +20,47 @@ const (
 	defaultRateLimit      = 10
 )
 
+// AgentConfig описывает конфигурацию агента.
+//
+// Значения берутся из флагов и переменных окружения в GetAgentConfig.
 type AgentConfig struct {
-	ServerAddr     string
+	// ServerAddr — адрес сервера метрик в формате host:port.
+	ServerAddr string
+	// ReportInterval — периодичность отправки метрик на сервер (в секундах).
 	ReportInterval int
-	PollInterval   int
-	Key            string
-	RateLimit      int
-}
-type ServerConfig struct {
-	ServerAddr      string
-	StoreInterval   int
-	FileStoragePath string
-	Restore         bool
-	DatabaseDSN     string
-	Key             string
-	AuditFile       string
-	AuditURL        string
-	PprofAddr       string
+	// PollInterval — периодичность опроса runtime-метрик (в секундах).
+	PollInterval int
+	// Key — ключ для подписи запросов (опционально).
+	Key string
+	// RateLimit — ограничение на число одновременно исходящих запросов агента.
+	RateLimit int
 }
 
+// ServerConfig описывает конфигурацию сервера метрик.
+//
+// Значения берутся из флагов и переменных окружения в GetServerConfig.
+type ServerConfig struct {
+	// ServerAddr — адрес HTTP-сервера в формате host:port.
+	ServerAddr string
+	// StoreInterval — периодичность сохранения метрик на диск (в секундах).
+	StoreInterval int
+	// FileStoragePath — путь к файлу для хранения метрик (опционально).
+	FileStoragePath string
+	// Restore — признак необходимости восстановления метрик из файла при старте.
+	Restore bool
+	// DatabaseDSN — строка подключения к PostgreSQL (опционально).
+	DatabaseDSN string
+	// Key — ключ для подписи запросов (опционально).
+	Key string
+	// AuditFile — путь к файлу для записи сообщений событий аудита (опционально).
+	AuditFile string
+	// AuditURL — URL для отправки сообщений событий аудита по HTTP (опционально).
+	AuditURL string
+	// PprofAddr — адрес pprof-сервера в формате host:port (опционально).
+	PprofAddr string
+}
+
+// GetServerConfig парсит флаги/переменные окружения и возвращает ServerConfig.
 func GetServerConfig() (ServerConfig, error) {
 	var serverAddrFlag string
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
@@ -178,6 +202,7 @@ func validateServerAddr(v string) error {
 	return nil
 }
 
+// GetAgentConfig парсит флаги/переменные окружения и возвращает AgentConfig.
 func GetAgentConfig() (AgentConfig, error) {
 	var serverAddrFlag string
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))

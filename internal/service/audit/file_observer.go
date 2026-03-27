@@ -13,6 +13,7 @@ type FileObserver struct {
 	path string
 }
 
+// NewFileObserver создает FileObserver с указанным именем файла для записи.
 func NewFileObserver(path string) *FileObserver {
 	return &FileObserver{path: path}
 }

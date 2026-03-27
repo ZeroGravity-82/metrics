@@ -12,7 +12,7 @@ import (
 
 const defaultQueueSize = 1024
 
-// Observer получает событие аудита и обрабатывает его по своему усмотрению.
+// Observer абстрагирует наблюдателя за событиями аудита, который получает их и обрабатывает по своему усмотрению.
 type Observer interface {
 	update(ctx context.Context, log model.AuditLog) error
 }
@@ -26,6 +26,7 @@ type AsyncPublisher struct {
 	logger    zerolog.Logger
 }
 
+// NewAsyncPublisher создает AsyncPublisher с заданными наблюдателями.
 func NewAsyncPublisher(logger zerolog.Logger, observers ...Observer) *AsyncPublisher {
 	return &AsyncPublisher{
 		observers: observers,
@@ -34,6 +35,7 @@ func NewAsyncPublisher(logger zerolog.Logger, observers ...Observer) *AsyncPubli
 	}
 }
 
+// PublishLog публикует событие аудита для набора метрик.
 func (a *AsyncPublisher) PublishLog(_ context.Context, now time.Time, ip string, metrics ...model.Metrics) {
 	if len(a.observers) == 0 {
 		return
@@ -69,7 +71,7 @@ func convertMetricsToAuditLog(now time.Time, ip string, metrics []model.Metrics)
 	return log
 }
 
-// Run запускает фоновый воркер и завершает его при отмене контекста.
+// Run запускает фоновый воркер, отвечающий за уведомление заданных наблюдателей, и завершает его при отмене контекста.
 func (a *AsyncPublisher) Run(ctx context.Context) {
 	for {
 		select {
