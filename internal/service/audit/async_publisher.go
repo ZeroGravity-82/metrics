@@ -48,6 +48,10 @@ func (a *AsyncPublisher) PublishLog(_ context.Context, now time.Time, ip string,
 	case a.queue <- log:
 	default:
 		// Не блокируем вызывающий код: при переполнении очереди логи отбрасываются.
+		a.logger.Warn().
+			Str("ip", ip).
+			Int("metrics_count", len(metrics)).
+			Msg("audit queue is full: dropping audit event")
 	}
 }
 
