@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -21,6 +22,7 @@ type Observer interface {
 //
 // При переполнении внутренней очереди события отбрасываются.
 type AsyncPublisher struct {
+	mu        sync.Mutex
 	observers []Observer
 	queue     chan model.AuditLog
 	logger    zerolog.Logger
@@ -28,16 +30,68 @@ type AsyncPublisher struct {
 
 // NewAsyncPublisher создает AsyncPublisher с заданными наблюдателями.
 func NewAsyncPublisher(logger zerolog.Logger, observers ...Observer) *AsyncPublisher {
-	return &AsyncPublisher{
-		observers: observers,
-		queue:     make(chan model.AuditLog, defaultQueueSize),
-		logger:    logger,
+	p := &AsyncPublisher{
+		queue:  make(chan model.AuditLog, defaultQueueSize),
+		logger: logger,
+	}
+	p.Register(observers...)
+	return p
+}
+
+// Register добавляет наблюдателей динамически.
+//
+// Повторная регистрация того же экземпляра (по ссылочному равенству) игнорируется.
+func (a *AsyncPublisher) Register(observers ...Observer) {
+	if len(observers) == 0 {
+		return
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for _, o := range observers {
+		if o == nil {
+			continue
+		}
+		// Не добавляем дубликаты.
+		exists := false
+		for _, existing := range a.observers {
+			if existing == o {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			a.observers = append(a.observers, o)
+		}
+	}
+}
+
+// Deregister удаляет наблюдателя динамически.
+//
+// Незарегистрированный наблюдатель игнорируется.
+func (a *AsyncPublisher) Deregister(observer Observer) {
+	if observer == nil {
+		return
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for i, o := range a.observers {
+		if o == observer {
+			a.observers = append(a.observers[:i], a.observers[i+1:]...)
+			return
+		}
 	}
 }
 
 // PublishLog публикует событие аудита для набора метрик.
 func (a *AsyncPublisher) PublishLog(_ context.Context, now time.Time, ip string, metrics ...model.Metrics) {
-	if len(a.observers) == 0 {
+	a.mu.Lock()
+	hasObservers := len(a.observers) > 0
+	a.mu.Unlock()
+	if !hasObservers {
 		return
 	}
 
@@ -88,7 +142,12 @@ func (a *AsyncPublisher) Run(ctx context.Context) {
 }
 
 func (a *AsyncPublisher) notify(ctx context.Context, log model.AuditLog) {
-	for _, o := range a.observers {
+	a.mu.Lock()
+	observers := make([]Observer, len(a.observers))
+	copy(observers, a.observers)
+	a.mu.Unlock()
+
+	for _, o := range observers {
 		func() {
 			defer func() {
 				// Паника одного наблюдателя не должно влиять на остальных наблюдателей.
