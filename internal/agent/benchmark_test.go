@@ -53,14 +53,12 @@ func BenchmarkAgent_marshalAndCompress_updatesBatch(b *testing.B) {
 		v := float64(i)
 		metrics = append(metrics, model.Metrics{ID: "m", MType: model.Gauge, Value: &v})
 	}
+	var jsonBz []byte
 	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
-		jsonBz, err := marshal(metrics)
-		if err != nil {
-			b.Fatalf("marshal failed: %v", err)
-		}
+		jsonBz, sinkErr = marshal(metrics)
 		sinkBytes, sinkErr = compress(jsonBz)
 	}
 }
