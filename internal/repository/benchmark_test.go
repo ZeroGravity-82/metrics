@@ -25,7 +25,7 @@ func BenchmarkMemStorage_UpdateMetric(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkErr = ms.UpdateMetric(ctx, m)
 	}
 }
@@ -45,7 +45,7 @@ func BenchmarkMemStorage_UpdateMetrics(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkErr = ms.UpdateMetrics(ctx, metrics)
 	}
 }
@@ -68,7 +68,7 @@ func BenchmarkMemStorage_GetMetric(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkMetric, sinkErr = ms.GetMetric(ctx, model.Gauge, "RandomValue")
 	}
 }
@@ -92,7 +92,7 @@ func BenchmarkFileStorage_UpdateMetric(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkErr = fs.UpdateMetric(ctx, m)
 	}
 }
@@ -121,7 +121,7 @@ func BenchmarkFileStorage_UpdateMetrics(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkErr = fs.UpdateMetrics(ctx, metrics)
 	}
 }
@@ -153,7 +153,7 @@ func BenchmarkFileStorage_GetMetric(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkMetric, sinkErr = fs.GetMetric(ctx, model.Gauge, "RandomValue")
 	}
 }
@@ -182,7 +182,7 @@ func BenchmarkFileStorage_RestoreMetrics(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
 			b.Fatalf("open failed: %v", err)

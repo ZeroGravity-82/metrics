@@ -79,7 +79,7 @@ func BenchmarkSigningResponseWriter_CalculateSignature(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		writer.WriteHeader(http.StatusOK)
 	}
 }
@@ -92,7 +92,7 @@ func BenchmarkMetricRouter_validateSignature(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkErr = validateSignature(sig, body, key)
 	}
 }
@@ -101,14 +101,14 @@ func BenchmarkMetricRouter_buildMetric(b *testing.B) {
 	b.Run("gauge metric", func(b *testing.B) {
 		b.ResetTimer()
 		// Measure
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			sinkMetric, sinkErr = buildMetric(model.Gauge, "RandomValue", "123.45")
 		}
 	})
 	b.Run("counter metric", func(b *testing.B) {
 		b.ResetTimer()
 		// Measure
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			sinkMetric, sinkErr = buildMetric(model.Counter, "PollCount", "777")
 		}
 	})
@@ -123,7 +123,7 @@ func BenchmarkMetricRouter_UpdateRoute(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(payload))
 		req.Header.Set("Content-Type", "application/json")
 
@@ -143,7 +143,7 @@ func BenchmarkMetricRouter_UpdateRoute_GzipIn_GzipOut(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(gzPayload))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
@@ -174,7 +174,7 @@ func BenchmarkMetricRouter_UpdateRoute_WithSignature(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(payload))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("HashSHA256", sig)

@@ -32,7 +32,7 @@ func BenchmarkAsyncPublisher_convertMetricsToAuditLog(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkAuditLog = convertMetricsToAuditLog(now, ip, metrics)
 	}
 }
@@ -56,7 +56,7 @@ func BenchmarkAsyncPublisher_PublishLog(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		p.PublishLog(ctx, now, ip, metrics...)
 	}
 }

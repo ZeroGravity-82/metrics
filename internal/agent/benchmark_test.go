@@ -22,7 +22,7 @@ func BenchmarkAgent_marshal_updatesBatch(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkBytes, sinkErr = marshal(metrics)
 	}
 }
@@ -41,7 +41,7 @@ func BenchmarkAgent_compress_updatesBatch(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkBytes, sinkErr = compress(jsonBz)
 	}
 }
@@ -56,7 +56,7 @@ func BenchmarkAgent_marshalAndCompress_updatesBatch(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		jsonBz, err := marshal(metrics)
 		if err != nil {
 			b.Fatalf("marshal failed: %v", err)
@@ -71,7 +71,7 @@ func BenchmarkAgent_copyMetricsAndResetPollCount(b *testing.B) {
 	b.ResetTimer()
 
 	// Measure
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sinkMetricMap = metrics.copyMetricsAndResetPollCount()
 	}
 }
