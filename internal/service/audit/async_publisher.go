@@ -11,7 +11,10 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
-const defaultQueueSize = 1024
+const (
+	defaultQueueSize    = 1024
+	maxConcurrentNotify = 10
+)
 
 // Observer абстрагирует наблюдателя за событиями аудита, который получает их и обрабатывает по своему усмотрению.
 type Observer interface {
@@ -26,6 +29,7 @@ type AsyncPublisher struct {
 	observers []Observer
 	queue     chan model.AuditLog
 	logger    zerolog.Logger
+	semaCh    chan struct{}
 }
 
 // NewAsyncPublisher создает AsyncPublisher с заданными наблюдателями.
@@ -33,6 +37,7 @@ func NewAsyncPublisher(logger zerolog.Logger, observers ...Observer) *AsyncPubli
 	p := &AsyncPublisher{
 		queue:  make(chan model.AuditLog, defaultQueueSize),
 		logger: logger,
+		semaCh: make(chan struct{}, maxConcurrentNotify),
 	}
 	p.Register(observers...)
 	return p
@@ -148,7 +153,11 @@ func (a *AsyncPublisher) notify(ctx context.Context, log model.AuditLog) {
 	a.mu.Unlock()
 
 	for _, o := range observers {
-		func() {
+		a.semaCh <- struct{}{}
+		go func(o Observer) {
+			defer func() {
+				<-a.semaCh
+			}()
 			defer func() {
 				// Паника одного наблюдателя не должно влиять на остальных наблюдателей.
 				if r := recover(); r != nil {
@@ -158,6 +167,6 @@ func (a *AsyncPublisher) notify(ctx context.Context, log model.AuditLog) {
 			if err := o.update(ctx, log); err != nil {
 				a.logger.Error().Err(err).Msg("audit observer update failed")
 			}
-		}()
+		}(o)
 	}
 }
