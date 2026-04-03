@@ -59,7 +59,10 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 	} else {
 		storage = repository.NewMemStorage()
 	}
-	publisher := buildAuditPublisher(cfg, logger)
+	publisher, err := buildAuditPublisher(cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("audit publisher error: %w", err)
+	}
 	httpSrv := httpserver.NewHTTPServer(cfg.ServerAddr, storage, publisher, cfg.Key, logger)
 	pprofSrv := httpserver.NewPprofServer(cfg.PprofAddr, logger)
 
@@ -102,15 +105,23 @@ func (app *Application) Close() {
 	if err := app.storage.Close(); err != nil {
 		app.logger.Error().Msg(err.Error())
 	}
+	if err := app.auditPublisher.Close(); err != nil {
+		app.logger.Error().Msg(err.Error())
+	}
 }
 
-func buildAuditPublisher(cfg config.ServerConfig, logger zerolog.Logger) *audit.AsyncPublisher {
-	var observers []audit.Observer
+func buildAuditPublisher(cfg config.ServerConfig, logger zerolog.Logger) (*audit.AsyncPublisher, error) {
+	publisher := audit.NewAsyncPublisher(logger)
 	if cfg.AuditFile != "" {
-		observers = append(observers, audit.NewFileObserver(cfg.AuditFile))
+		o, err := audit.NewFileObserver(cfg.AuditFile)
+		if err != nil {
+			return nil, err
+		}
+		publisher.Register(o)
 	}
 	if cfg.AuditURL != "" {
-		observers = append(observers, audit.NewHTTPObserver(cfg.AuditURL))
+		o := audit.NewHTTPObserver(cfg.AuditURL)
+		publisher.Register(o)
 	}
-	return audit.NewAsyncPublisher(logger, observers...)
+	return publisher, nil
 }

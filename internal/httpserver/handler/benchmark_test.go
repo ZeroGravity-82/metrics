@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"zerogravity-82/metrics/internal/model"
-
 	"github.com/rs/zerolog"
+
+	"zerogravity-82/metrics/internal/model"
+	"zerogravity-82/metrics/internal/service/audit"
 )
 
 var (
@@ -66,6 +67,8 @@ func (nopStorage) Close() error               { return nil }
 
 type nopAuditPublisher struct{}
 
+func (nopAuditPublisher) Register(observers ...audit.Observer)                            {}
+func (nopAuditPublisher) Deregister(o audit.Observer) error                               { return nil }
 func (nopAuditPublisher) PublishLog(context.Context, time.Time, string, ...model.Metrics) {}
 
 func BenchmarkSigningResponseWriter_CalculateSignature(b *testing.B) {

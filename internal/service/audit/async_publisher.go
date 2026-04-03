@@ -2,6 +2,8 @@ package audit
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -75,20 +77,32 @@ func (a *AsyncPublisher) Register(observers ...Observer) {
 // Deregister удаляет наблюдателя динамически.
 //
 // Незарегистрированный наблюдатель игнорируется.
-func (a *AsyncPublisher) Deregister(observer Observer) {
+func (a *AsyncPublisher) Deregister(observer Observer) error {
 	if observer == nil {
-		return
+		return nil
 	}
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
+	var (
+		found bool
+		pos   int
+	)
 	for i, o := range a.observers {
 		if o == observer {
-			a.observers = append(a.observers[:i], a.observers[i+1:]...)
-			return
+			found = true
+			pos = i
+			break
 		}
 	}
+	a.mu.Unlock()
+
+	if found {
+		a.observers = append(a.observers[:pos], a.observers[pos+1:]...)
+		if o, ok := observer.(io.Closer); ok {
+			return o.Close()
+		}
+	}
+	return nil
 }
 
 // PublishLog публикует событие аудита для набора метрик.
@@ -169,4 +183,17 @@ func (a *AsyncPublisher) notify(ctx context.Context, log model.AuditLog) {
 			}
 		}(o)
 	}
+}
+
+func (a *AsyncPublisher) Close() error {
+	var errs []error
+	for _, o := range a.observers {
+		if o, ok := o.(io.Closer); ok {
+			if err := o.Close(); err != nil {
+				a.logger.Error().Msg(err.Error())
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }

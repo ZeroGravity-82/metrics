@@ -22,19 +22,19 @@ func NewHTTPObserver(url string) *HTTPObserver {
 	return &HTTPObserver{url: url, client: &http.Client{Timeout: 3 * time.Second}}
 }
 
-func (s *HTTPObserver) update(ctx context.Context, log model.AuditLog) error {
+func (o *HTTPObserver) update(ctx context.Context, log model.AuditLog) error {
 	b, err := json.Marshal(log)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.url, bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.client.Do(req)
+	resp, err := o.client.Do(req)
 	if err != nil {
 		return err
 	}
