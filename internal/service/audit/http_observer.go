@@ -11,15 +11,37 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
-// HTTPObserver отправляет сообщение события аудита POST-запросом в удаленный приемник.
+const (
+	// maxRetries задает количество повторных попыток отправки запроса.
+	maxRetries int = 3
+
+	// requestTimeout задает тайм-аут на каждую попытку отправки запроса.
+	requestTimeout time.Duration = 30 * time.Second
+
+	// httpClientTimeout является подстраховкой от зависаний транспорта/чтения тела ответа.
+	httpClientTimeout time.Duration = 60 * time.Second
+)
+
+// HTTPObserver является HTTP-клиентом и отправляет сообщение события аудита POST-запросом в удаленный приемник.
+//
+// Повторные запросы и экспоненциальная задержка (backoff) реализованы во внутреннем транспортном клиенте.
 type HTTPObserver struct {
-	url    string
-	client *http.Client
+	httpClient *retryingHTTPClient
+	url        string
 }
 
 // NewHTTPObserver создает HTTPObserver с указанным URL удаленного приемника.
 func NewHTTPObserver(url string) *HTTPObserver {
-	return &HTTPObserver{url: url, client: &http.Client{Timeout: 3 * time.Second}}
+	return &HTTPObserver{
+		httpClient: newRetryingHTTPClient(
+			httpClientTimeout,
+			maxRetries,
+			200*time.Millisecond,
+			2*time.Second,
+			requestTimeout,
+		),
+		url: url,
+	}
 }
 
 func (o *HTTPObserver) update(ctx context.Context, log model.AuditLog) error {
@@ -34,7 +56,7 @@ func (o *HTTPObserver) update(ctx context.Context, log model.AuditLog) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := o.client.Do(req)
+	resp, err := o.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
