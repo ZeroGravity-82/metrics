@@ -49,7 +49,7 @@ func (w *signingResponseWriter) WriteHeader(statusCode int) {
 	w.ResponseWriter.WriteHeader(statusCode)
 	_, err := w.ResponseWriter.Write(bodyBz)
 	if err != nil {
-		w.logger.Error().Str("error", err.Error()).Msg("Error on sending signed response")
+		w.logger.Error().Err(err).Msg("Error on sending signed response")
 	}
 	w.wroteHeader = true
 }

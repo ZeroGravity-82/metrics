@@ -16,10 +16,22 @@ import (
 	"zerogravity-82/metrics/internal/model"
 )
 
+// DBStorage - персистентное хранилище метрик на PostgreSQL.
+//
+// Реализует интерфейс handler.Storage.
 type DBStorage struct {
 	db *sqlx.DB
 }
 
+// DBMetric - внутреннее представление строки метрики в БД.
+//
+// ID - наименование (идентификатор) метрики.
+//
+// MType - тип метрики: счетчик ("counter") или датчик ("gauge").
+//
+// Delta - значение для счетчика (sql.Null* для датчика).
+//
+// Value - значение для датчика (sql.Null* для счетчика).
 type DBMetric struct {
 	ID    string
 	MType string `db:"type"`
@@ -27,6 +39,7 @@ type DBMetric struct {
 	Value sql.NullFloat64
 }
 
+// NewDBStorage создает DBStorage поверх существующего sqlx.DB.
 func NewDBStorage(db *sqlx.DB) *DBStorage {
 	return &DBStorage{db: db}
 }
@@ -93,6 +106,9 @@ func isRetryableError(err error) bool {
 	return false
 }
 
+// UpdateMetric добавляет или обновляет одну метрику.
+//
+// Операция выполняется с retry при временных ошибках БД/сети.
 func (ds *DBStorage) UpdateMetric(ctx context.Context, m model.Metrics) error {
 	return withRetry(ctx, func() error {
 		return ds.doUpdateMetric(ctx, m)
@@ -135,6 +151,9 @@ func (ds *DBStorage) doUpdateMetric(ctx context.Context, m model.Metrics) error 
 	return nil
 }
 
+// UpdateMetrics добавляет или обновляет набор метрик батчами.
+//
+// Операция выполняется с retry при временных ошибках БД/сети.
 func (ds *DBStorage) UpdateMetrics(ctx context.Context, metrics []model.Metrics) error {
 	return withRetry(ctx, func() error {
 		return ds.doUpdateMetrics(ctx, metrics)
@@ -212,6 +231,9 @@ func buildSortedDBMetricsSlice(metricsMap map[string]DBMetric) []DBMetric {
 	return metricsSlice
 }
 
+// GetMetric возвращает метрику по типу и имени (идентификатору) из БД.
+//
+// Операция выполняется с retry при временных ошибках БД/сети.
 func (ds *DBStorage) GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error) {
 	var m model.Metrics
 	err := withRetry(ctx, func() error {
@@ -247,6 +269,9 @@ func (ds *DBStorage) doGetMetric(ctx context.Context, mType, mName string) (mode
 	return model.Metrics{ID: m.ID, MType: m.MType, Delta: nil, Value: &m.Value.Float64}, nil
 }
 
+// GetAll возвращает все метрики из БД.
+//
+// Операция выполняется с retry при временных ошибках БД/сети.
 func (ds *DBStorage) GetAll(ctx context.Context) (map[string]model.Metrics, error) {
 	var metrics map[string]model.Metrics
 	err := withRetry(ctx, func() error {
@@ -285,10 +310,12 @@ func (ds *DBStorage) doGetAll(ctx context.Context) (map[string]model.Metrics, er
 	return metricsMap, nil
 }
 
+// Ping проверяет доступность подключения к БД.
 func (ds *DBStorage) Ping(ctx context.Context) error {
 	return ds.db.PingContext(ctx)
 }
 
+// Close закрывает соединение с БД.
 func (ds *DBStorage) Close() error {
 	return ds.db.Close()
 }

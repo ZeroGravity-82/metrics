@@ -11,19 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 )
 
 func TestNewFileStorage_FailInstantiateWhenCantOpenCfgFile(t *testing.T) {
-	// Arrange
-	cfg := config.ServerConfig{
-		FileStoragePath: "",
-		Restore:         false,
-	}
-
 	// Act
-	_, err := NewFileStorage(cfg)
+	_, err := NewFileStorage("", false)
 
 	// Assert
 	require.Error(t, err)
@@ -42,13 +35,8 @@ func TestNewFileStorage_CanInstantiateWithoutRestore(t *testing.T) {
 	err = os.WriteFile(tempFile.Name(), []byte(`[{"id":"PollCount","type":"counter","delta":777}]`), 0666)
 	require.NoError(t, err)
 
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-		Restore:         false,
-	}
-
 	// Act
-	fs, err := NewFileStorage(cfg)
+	fs, err := NewFileStorage(tempFile.Name(), false)
 
 	// Assert
 	require.NoError(t, err)
@@ -63,10 +51,6 @@ func TestNewFileStorage_CanInstantiateWithRestore(t *testing.T) {
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-		Restore:         true,
-	}
 	tests := []struct {
 		name        string
 		fileContent string
@@ -94,11 +78,11 @@ func TestNewFileStorage_CanInstantiateWithRestore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			err = os.WriteFile(cfg.FileStoragePath, []byte(tt.fileContent), 0666)
+			err = os.WriteFile(tempFile.Name(), []byte(tt.fileContent), 0666)
 			require.NoError(t, err)
 
 			// Act
-			fs, err := NewFileStorage(cfg)
+			fs, err := NewFileStorage(tempFile.Name(), true)
 
 			// Assert
 			if tt.wantError {
@@ -139,13 +123,9 @@ func TestUpdateMetricInFileStorage_CanAddNewMetric(t *testing.T) {
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-		Restore:         false,
-	}
 	t.Run("can add new counter", func(t *testing.T) {
 		// Arrange
-		fs, err := NewFileStorage(cfg)
+		fs, err := NewFileStorage(tempFile.Name(), false)
 		require.NoError(t, err)
 		m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777), Value: nil}
 
@@ -167,7 +147,7 @@ func TestUpdateMetricInFileStorage_CanAddNewMetric(t *testing.T) {
 	})
 	t.Run("can add new gauge", func(t *testing.T) {
 		// Arrange
-		fs, err := NewFileStorage(cfg)
+		fs, err := NewFileStorage(tempFile.Name(), false)
 		require.NoError(t, err)
 		m := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(123.45)}
 
@@ -238,11 +218,8 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingCounter(t *testing.T) {
 		0666,
 	)
 	require.NoError(t, err)
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-		Restore:         true,
-	}
-	fs, err := NewFileStorage(cfg)
+
+	fs, err := NewFileStorage(tempFile.Name(), true)
 	require.NoError(t, err)
 	m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(111), Value: nil}
 
@@ -292,11 +269,8 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingGauge(t *testing.T) {
 		0666,
 	)
 	require.NoError(t, err)
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-		Restore:         true,
-	}
-	fs, err := NewFileStorage(cfg)
+
+	fs, err := NewFileStorage(tempFile.Name(), true)
 	require.NoError(t, err)
 	m := model.Metrics{ID: "RandomValue", MType: model.Gauge, Delta: nil, Value: float64Pointer(234.56)}
 
@@ -346,11 +320,7 @@ func TestUpdateMetricsInFileStorage_FailEvenWithOneSingleInvalidMetric(t *testin
 		0666,
 	)
 	require.NoError(t, err)
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-		Restore:         true,
-	}
-	fs, err := NewFileStorage(cfg)
+	fs, err := NewFileStorage(tempFile.Name(), true)
 	require.NoError(t, err)
 	mu := []model.Metrics{
 		{ID: "FooCounter", MType: "unsupported", Delta: int64Pointer(123), Value: nil},
@@ -406,11 +376,7 @@ func TestUpdateMetricsInFileStorage_CanAddNewAndUpdateExistingMetrics(t *testing
 		0666,
 	)
 	require.NoError(t, err)
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-		Restore:         true,
-	}
-	fs, err := NewFileStorage(cfg)
+	fs, err := NewFileStorage(tempFile.Name(), true)
 	require.NoError(t, err)
 	mu := []model.Metrics{
 		{ID: "FooCounter", MType: model.Counter, Delta: int64Pointer(123), Value: nil},
@@ -482,11 +448,7 @@ func TestGetMetricInFileStorage(t *testing.T) {
 		0666,
 	)
 	require.NoError(t, err)
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-		Restore:         true,
-	}
-	fs, err := NewFileStorage(cfg)
+	fs, err := NewFileStorage(tempFile.Name(), true)
 	require.NoError(t, err)
 
 	t.Run("fail when not found by name", func(t *testing.T) {
@@ -546,11 +508,7 @@ func TestGetAllInFileStorage(t *testing.T) {
 		0666,
 	)
 	require.NoError(t, err)
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-		Restore:         true,
-	}
-	fs, err := NewFileStorage(cfg)
+	fs, err := NewFileStorage(tempFile.Name(), true)
 	require.NoError(t, err)
 
 	// Act
@@ -569,10 +527,7 @@ func TestPingInFileStorage(t *testing.T) {
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-	}
-	fs, err := NewFileStorage(cfg)
+	fs, err := NewFileStorage(tempFile.Name(), false)
 	require.NoError(t, err)
 
 	// Act
@@ -589,10 +544,7 @@ func TestCloseInFileStorage(t *testing.T) {
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	cfg := config.ServerConfig{
-		FileStoragePath: tempFile.Name(),
-	}
-	fs, err := NewFileStorage(cfg)
+	fs, err := NewFileStorage(tempFile.Name(), false)
 	require.NoError(t, err)
 
 	// Act

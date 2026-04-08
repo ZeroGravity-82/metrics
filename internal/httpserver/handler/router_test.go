@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"flag"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -20,6 +18,7 @@ import (
 
 	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/repository"
+	"zerogravity-82/metrics/internal/service/audit"
 )
 
 func int64Pointer(v int64) *int64 {
@@ -32,13 +31,11 @@ func float64Pointer(v float64) *float64 {
 
 func TestUpdateMetricHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
 	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, key, logger))
+	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -181,13 +178,11 @@ func TestUpdateMetricHandler(t *testing.T) {
 
 func TestUpdateHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
 	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, key, logger))
+	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -352,13 +347,11 @@ func compressWithGzip(body string) (*bytes.Buffer, error) {
 
 func TestUpdatesHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
 	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, key, logger))
+	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -511,13 +504,11 @@ func TestUpdatesHandler(t *testing.T) {
 }
 func TestGetMetricHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
 	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, key, logger))
+	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -606,13 +597,11 @@ func TestGetMetricHandler(t *testing.T) {
 
 func TestGetHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
 	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, key, logger))
+	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -731,13 +720,11 @@ func TestGetHandler(t *testing.T) {
 
 func TestGetMetricListHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
 	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, key, logger))
+	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -793,18 +780,16 @@ func TestGetMetricListHandler(t *testing.T) {
 
 func TestPingHandler(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{"server"}
-
+	logger := zerolog.Nop()
 	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	require.NoError(t, err)
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	ds := repository.NewDBStorage(sqlxDB)
+	a := audit.NewAsyncPublisher(logger)
 	key := ""
-	ts := httptest.NewServer(MetricRouter(ds, key, logger))
+	ts := httptest.NewServer(MetricRouter(ds, a, key, logger))
 	defer ts.Close()
 
 	tests := []struct {

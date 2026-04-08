@@ -6,7 +6,7 @@ import (
 )
 
 type (
-	// responseData хранит аналитические данные HTTP-ответа
+	// responseData хранит аналитические данные HTTP-ответа.
 	responseData struct {
 		status int
 		size   int

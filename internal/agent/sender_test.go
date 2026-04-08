@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -65,7 +64,7 @@ func TestPollMetrics(t *testing.T) {
 
 func TestPollUtilMetrics(t *testing.T) {
 	// Arrange
-	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	logger := zerolog.Nop()
 	m := newMetrics()
 
 	// Act

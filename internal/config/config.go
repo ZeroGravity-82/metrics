@@ -1,3 +1,5 @@
+// Пакет config содержит структуры конфигурации и функции загрузки настроек агента и сервера из флагов и переменных
+// окружения.
 package config
 
 import (
@@ -18,22 +20,47 @@ const (
 	defaultRateLimit      = 10
 )
 
+// AgentConfig описывает конфигурацию агента.
+//
+// Значения берутся из флагов и переменных окружения в GetAgentConfig.
 type AgentConfig struct {
-	ServerAddr     string
+	// ServerAddr — адрес сервера метрик в формате host:port.
+	ServerAddr string
+	// ReportInterval — периодичность отправки метрик на сервер (в секундах).
 	ReportInterval int
-	PollInterval   int
-	Key            string
-	RateLimit      int
-}
-type ServerConfig struct {
-	ServerAddr      string
-	StoreInterval   int
-	FileStoragePath string
-	Restore         bool
-	DatabaseDSN     string
-	Key             string
+	// PollInterval — периодичность опроса runtime-метрик (в секундах).
+	PollInterval int
+	// Key — ключ для подписи запросов (опционально).
+	Key string
+	// RateLimit — ограничение на число одновременно исходящих запросов агента.
+	RateLimit int
 }
 
+// ServerConfig описывает конфигурацию сервера метрик.
+//
+// Значения берутся из флагов и переменных окружения в GetServerConfig.
+type ServerConfig struct {
+	// ServerAddr — адрес HTTP-сервера в формате host:port.
+	ServerAddr string
+	// StoreInterval — периодичность сохранения метрик на диск (в секундах).
+	StoreInterval int
+	// FileStoragePath — путь к файлу для хранения метрик (опционально).
+	FileStoragePath string
+	// Restore — признак необходимости восстановления метрик из файла при старте.
+	Restore bool
+	// DatabaseDSN — строка подключения к PostgreSQL (опционально).
+	DatabaseDSN string
+	// Key — ключ для подписи запросов (опционально).
+	Key string
+	// AuditFile — путь к файлу для записи сообщений событий аудита (опционально).
+	AuditFile string
+	// AuditURL — URL для отправки сообщений событий аудита по HTTP (опционально).
+	AuditURL string
+	// PprofAddr — адрес pprof-сервера в формате host:port (опционально).
+	PprofAddr string
+}
+
+// GetServerConfig парсит флаги/переменные окружения и возвращает ServerConfig.
 func GetServerConfig() (ServerConfig, error) {
 	var serverAddrFlag string
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
@@ -42,6 +69,9 @@ func GetServerConfig() (ServerConfig, error) {
 	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
 	databaseDSNFlag := flag.String("d", "", "строка подключения к БД")
 	keyFlag := flag.String("k", "", "ключ для подписи запросов")
+	auditFileFlag := flag.String("audit-file", "", "путь к файлу с логами аудита")
+	auditURLFlag := flag.String("audit-url", "", "полный URL для отправки логов аудита")
+	pprofAddrFlag := flag.String("pprof", "", "адрес pprof-сервера")
 	flag.Parse()
 
 	cfg := ServerConfig{}
@@ -66,6 +96,15 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	auditFile, err := getAuditFile(auditFileFlag)
+	if err != nil {
+		return cfg, err
+	}
+	auditURL, err := getAuditURL(auditURLFlag)
+	if err != nil {
+		return cfg, err
+	}
+	pprofAddr := getPprofAddr(pprofAddrFlag)
 
 	cfg.ServerAddr = serverAddr
 	cfg.StoreInterval = storeInterval
@@ -73,6 +112,9 @@ func GetServerConfig() (ServerConfig, error) {
 	cfg.Restore = restore
 	cfg.DatabaseDSN = databaseDSN
 	cfg.Key = key
+	cfg.AuditFile = auditFile
+	cfg.AuditURL = auditURL
+	cfg.PprofAddr = pprofAddr
 	return cfg, nil
 }
 
@@ -160,6 +202,7 @@ func validateServerAddr(v string) error {
 	return nil
 }
 
+// GetAgentConfig парсит флаги/переменные окружения и возвращает AgentConfig.
 func GetAgentConfig() (AgentConfig, error) {
 	var serverAddrFlag string
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
@@ -237,6 +280,30 @@ func getKey(keyFlag *string) (string, error) {
 		return *keyFlag, nil
 	}
 	return keyEnvStr, nil
+}
+
+func getAuditFile(auditFileFlag *string) (string, error) {
+	auditFileEnvStr, ok := os.LookupEnv("AUDIT_FILE")
+	if !ok {
+		return *auditFileFlag, nil
+	}
+	return auditFileEnvStr, nil
+}
+
+func getAuditURL(auditURLFlag *string) (string, error) {
+	auditURLEnvStr, ok := os.LookupEnv("AUDIT_URL")
+	if !ok {
+		return *auditURLFlag, nil
+	}
+	return auditURLEnvStr, nil
+}
+
+func getPprofAddr(pprofAddrFlag *string) string {
+	pprofAddrEnvStr, ok := os.LookupEnv("PPROF_ADDR")
+	if !ok {
+		return *pprofAddrFlag
+	}
+	return pprofAddrEnvStr
 }
 
 func getRateLimit(rateLimitFlag *int) (int, error) {

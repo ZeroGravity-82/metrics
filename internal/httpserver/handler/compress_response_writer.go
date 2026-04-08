@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"net/http"
+	"sync"
 )
 
 // compressResponseWriter реализует интерфейс http.ResponseWriter и позволяет прозрачно для сервера сжимать передаваемые
@@ -15,10 +16,20 @@ type compressResponseWriter struct {
 	wroteHeader bool
 }
 
+// gzipWriterPool используется для уменьшения числа аллокаций памяти за счет того, что gzip.Writer не создается новый
+// для каждого запроса.
+var gzipWriterPool = sync.Pool{
+	New: func() any {
+		return gzip.NewWriter(nil)
+	},
+}
+
 func newCompressResponseWriter(w http.ResponseWriter) *compressResponseWriter {
+	zw := gzipWriterPool.Get().(*gzip.Writer)
+	zw.Reset(w)
 	return &compressResponseWriter{
 		ResponseWriter: w,
-		zw:             gzip.NewWriter(w),
+		zw:             zw,
 		statusCode:     http.StatusOK,
 	}
 }
@@ -45,7 +56,13 @@ func (w *compressResponseWriter) WriteHeader(statusCode int) {
 
 // Close закрывает gzip.Writer и досылает все данные из буфера.
 func (w *compressResponseWriter) Close() error {
-	if err := w.zw.Close(); err != nil {
+	err := w.zw.Close()
+
+	// Возвращаем gzip.Writer обратно в пул.
+	w.zw.Reset(nil)
+	gzipWriterPool.Put(w.zw)
+
+	if err != nil {
 		return fmt.Errorf("compressResponseWriter: failed to close gzip writer: %w", err)
 	}
 	return nil

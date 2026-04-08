@@ -104,14 +104,14 @@ func (m *metrics) pollUtilMetrics(logger zerolog.Logger) {
 	defer m.mu.Unlock()
 
 	if vm, err := mem.VirtualMemory(); err != nil {
-		logger.Error().Str("error", err.Error()).Msg("Error on polling virtual memory")
+		logger.Error().Err(err).Msg("Error on polling virtual memory")
 
 	} else {
 		m.data["TotalMemory"] = convertUint64ToGaugeMetric("TotalMemory", vm.Total)
 		m.data["FreeMemory"] = convertUint64ToGaugeMetric("FreeMemory", vm.Free)
 	}
 	if pct, err := cpu.Percent(0, true); err != nil {
-		logger.Error().Str("error", err.Error()).Msg("Error on polling CPU utilization")
+		logger.Error().Err(err).Msg("Error on polling CPU utilization")
 	} else {
 		for i, p := range pct {
 			name := fmt.Sprintf("CPUutilization%d", i+1)
@@ -141,6 +141,9 @@ func (m *metrics) restorePollCount(delta int64) {
 	m.data["PollCount"] = model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &v}
 }
 
+// Run запускает цикл опроса метрик и периодически отправляет их на сервер.
+//
+// Функция блокируется, пока процесс не будет остановлен.
 func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 	m := newMetrics()
 
@@ -182,7 +185,7 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 
 				mCopy := m.copyMetricsAndResetPollCount()
 				if err := sendReport(cfg.ServerAddr, cfg.Key, mCopy, httpClient); err != nil {
-					logger.Error().Str("error", err.Error()).Msg("Error on sending metrics")
+					logger.Error().Err(err).Msg("Error on sending metrics")
 
 					// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
 					// возвращается в структуру metrics
@@ -201,7 +204,7 @@ func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Durati
 	)
 
 	var retryCount int
-	return func(client *resty.Client, r *resty.Response) (time.Duration, error) {
+	return func(_ *resty.Client, r *resty.Response) (time.Duration, error) {
 		if retryCount == 0 {
 			retryCount++
 			return firstRetryDelay, nil
@@ -262,6 +265,7 @@ func marshal(metrics []model.Metrics) ([]byte, error) {
 func compress(data []byte) ([]byte, error) {
 	var gzipBuf bytes.Buffer
 	zw := gzip.NewWriter(&gzipBuf)
+
 	if _, err := zw.Write(data); err != nil {
 		return nil, fmt.Errorf("failed to gzip data: %w", err)
 	}
