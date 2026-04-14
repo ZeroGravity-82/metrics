@@ -1,3 +1,15 @@
+// Пакет osexitmain содержит собственный анализатор для golang.org/x/tools/go/analysis.
+//
+// Анализатор находит прямые вызовы os.Exit() внутри func main() пакета main.
+//
+// Что считается нарушением:
+//   - os.Exit(1).
+//   - alias.Exit(1) (import alias "os").
+//   - Exit(1) (dot-import: import . "os").
+//
+// Что НЕ считается нарушением:
+//   - любые вызовы os.Exit() вне пакета main.
+//   - вызовы os.Exit() вне функции main(), включая вызовы из вложенных функций.
 package osexitmain
 
 import (
@@ -7,9 +19,10 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// Analyzer - экспортируемая точка входа, через которую multichecker подключает этот анализатор.
 var Analyzer = &analysis.Analyzer{
 	Name: "osexitmain",
-	Doc:  `reports os.Exit calls inside main() of package main`,
+	Doc:  "reports os.Exit calls inside main() of package main",
 	Run:  run,
 }
 

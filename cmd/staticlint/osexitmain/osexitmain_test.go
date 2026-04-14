@@ -6,9 +6,8 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
+// TestOsExitMainAnalyzer запускает Analyzer на пакетах из ./testdata и проверяет ожидания, заданные через комментарии
+// вида "// want ...".
 func TestOsExitMainAnalyzer(t *testing.T) {
-	// Функция analysistest.Run применяет тестируемый анализатор osexitmain,Analyzer к пакетам из папки testdata
-	// и проверяет ожидания.
-	// ./... — проверка всех поддиректорий в testdata.
 	analysistest.Run(t, analysistest.TestData(), Analyzer, "./...")
 }
