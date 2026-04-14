@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"zerogravity-82/metrics/internal/model"
@@ -21,9 +22,10 @@ type FileStorage struct {
 	mu   sync.Mutex
 }
 
-// NewFileStorage открывает/создает файл по fileStoragePath и опционально восстанавливает метрики из него.
-func NewFileStorage(fileStoragePath string, restore bool) (*FileStorage, error) {
-	file, err := os.OpenFile(fileStoragePath, os.O_RDWR|os.O_CREATE, 0666)
+// NewFileStorage открывает/создает файл по указанному пути и опционально восстанавливает метрики из него.
+func NewFileStorage(path string, restore bool) (*FileStorage, error) {
+	cleanPath := filepath.Clean(path)
+	file, err := os.OpenFile(cleanPath, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the file with metrics: %w", err)
 	}

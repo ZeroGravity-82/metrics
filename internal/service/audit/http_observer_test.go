@@ -31,7 +31,7 @@ func Test_update_CanUpdateWithSingleAttempt(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "audit.com", u.Host)
 		assert.Equal(t, http.MethodPost, r.Method)
-		body, err := io.ReadAll(r.Body)
+		body, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
 		assert.JSONEq(
 			t,

@@ -171,7 +171,7 @@ func (ds *DBStorage) doUpdateMetrics(ctx context.Context, metrics []model.Metric
 
 	DBMetricsMap := make(map[string]DBMetric)
 	for _, m := range metrics {
-		if err := validateMetric(m); err != nil {
+		if err = validateMetric(m); err != nil {
 			return fmt.Errorf("failed to update metrics: %w", err)
 		}
 

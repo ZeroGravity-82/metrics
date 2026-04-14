@@ -74,6 +74,7 @@ func (m *metrics) pollMetrics() {
 	m.data["StackSys"] = convertUint64ToGaugeMetric("StackSys", memStats.StackSys)
 	m.data["Sys"] = convertUint64ToGaugeMetric("Sys", memStats.Sys)
 	m.data["TotalAlloc"] = convertUint64ToGaugeMetric("TotalAlloc", memStats.TotalAlloc)
+	// #nosec G404 -- RandomValue is not about security
 	m.data["RandomValue"] = convertUint32ToGaugeMetric("RandomValue", rand.Uint32())
 
 	incrementPollCount(m)

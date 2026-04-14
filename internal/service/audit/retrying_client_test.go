@@ -227,7 +227,7 @@ func TestDo_DoesNotRetryOnContextError(t *testing.T) {
 			// Act
 			resp, err := cl.Do(req)
 			if resp != nil && resp.Body != nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 
 			// Assert

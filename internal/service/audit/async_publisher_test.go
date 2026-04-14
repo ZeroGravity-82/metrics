@@ -68,7 +68,7 @@ func TestAsyncPublisher_Deregister_Removes(t *testing.T) {
 	p.Register(o2, o3)
 
 	// Act
-	p.Deregister(o1)
+	_ = p.Deregister(o1)
 
 	// Assert
 	assert.Len(t, p.observers, 2)
@@ -89,7 +89,7 @@ func TestAsyncPublisher_PublishLog_NotifyObserversSuccessfully(t *testing.T) {
 	o4 := &testObserver{wg: &wg}
 	p := NewAsyncPublisher(zerolog.Nop(), o1, o4)
 	p.Register(o2, o3)
-	p.Deregister(o4)
+	_ = p.Deregister(o4)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

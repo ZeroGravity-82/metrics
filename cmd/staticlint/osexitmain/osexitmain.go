@@ -15,6 +15,7 @@ package osexitmain
 import (
 	"go/ast"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -29,6 +30,11 @@ var Analyzer = &analysis.Analyzer{
 func run(pass *analysis.Pass) (interface{}, error) {
 	// Нас интересует только пакет main.
 	if pass.Pkg == nil || pass.Pkg.Name() != "main" {
+		return nil, nil
+	}
+	// Игнорируем сгенерированные тестовые main-пакеты. Они лежат в ~/.cache/go-build и содержат os.Exit() по
+	// определению. Их анализ не несет пользы и только засоряет вывод линтера.
+	if strings.HasSuffix(pass.Pkg.Path(), ".test") {
 		return nil, nil
 	}
 

@@ -18,7 +18,7 @@ func TestCompressRequestReader(t *testing.T) {
 	data := []byte("Hello, World!")
 	_, err := gzWriter.Write(data)
 	require.NoError(t, err)
-	gzWriter.Close()
+	_ = gzWriter.Close()
 
 	reader, err := newCompressRequestReader(io.NopCloser(&buf))
 	require.NoError(t, err)

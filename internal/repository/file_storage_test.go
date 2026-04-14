@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestNewFileStorage_CanInstantiateWithoutRestore(t *testing.T) {
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	err = os.WriteFile(tempFile.Name(), []byte(`[{"id":"PollCount","type":"counter","delta":777}]`), 0666)
+	err = os.WriteFile(tempFile.Name(), []byte(`[{"id":"PollCount","type":"counter","delta":777}]`), 0o600)
 	require.NoError(t, err)
 
 	// Act
@@ -78,7 +79,7 @@ func TestNewFileStorage_CanInstantiateWithRestore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			err = os.WriteFile(tempFile.Name(), []byte(tt.fileContent), 0666)
+			err = os.WriteFile(tempFile.Name(), []byte(tt.fileContent), 0o600)
 			require.NoError(t, err)
 
 			// Act
@@ -169,8 +170,9 @@ func TestUpdateMetricInFileStorage_CanAddNewMetric(t *testing.T) {
 	})
 }
 
-func JSONEqualFile(t *testing.T, JSON string, fileName string) (bool, error) {
-	file, err := os.Open(fileName)
+func JSONEqualFile(t *testing.T, jsonString string, fileName string) (bool, error) {
+	cleanFileName := filepath.Clean(fileName)
+	file, err := os.Open(cleanFileName)
 	if err != nil {
 		return false, err
 	}
@@ -182,7 +184,7 @@ func JSONEqualFile(t *testing.T, JSON string, fileName string) (bool, error) {
 		return false, err
 	}
 
-	r := strings.NewReader(JSON)
+	r := strings.NewReader(jsonString)
 	dec = json.NewDecoder(r)
 	var metricsFromJSON []model.Metrics
 	if err = dec.Decode(&metricsFromJSON); err != nil {
@@ -215,7 +217,7 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingCounter(t *testing.T) {
 			{"id":"PollCount","type":"counter","delta":777},
 			{"id":"RandomValue","type":"gauge","value":123.45}]
 		`),
-		0666,
+		0o600,
 	)
 	require.NoError(t, err)
 
@@ -266,7 +268,7 @@ func TestUpdateMetricInFileStorage_CanUpdateExistingGauge(t *testing.T) {
 			{"id":"PollCount","type":"counter","delta":777},
 			{"id":"RandomValue","type":"gauge","value":123.45}
 		]`),
-		0666,
+		0o600,
 	)
 	require.NoError(t, err)
 
@@ -317,7 +319,7 @@ func TestUpdateMetricsInFileStorage_FailEvenWithOneSingleInvalidMetric(t *testin
 			{"id":"PollCount","type":"counter","delta":777},
 			{"id":"RandomValue","type":"gauge","value":123.45}
 		]`),
-		0666,
+		0o600,
 	)
 	require.NoError(t, err)
 	fs, err := NewFileStorage(tempFile.Name(), true)
@@ -373,7 +375,7 @@ func TestUpdateMetricsInFileStorage_CanAddNewAndUpdateExistingMetrics(t *testing
 			{"id":"PollCount","type":"counter","delta":777},
 			{"id":"RandomValue","type":"gauge","value":123.45}
 		]`),
-		0666,
+		0o600,
 	)
 	require.NoError(t, err)
 	fs, err := NewFileStorage(tempFile.Name(), true)
@@ -445,7 +447,7 @@ func TestGetMetricInFileStorage(t *testing.T) {
 			{"id":"PollCount","type":"counter","delta":777},
 			{"id":"RandomValue","type":"gauge","value":123.45}
 		]`),
-		0666,
+		0o600,
 	)
 	require.NoError(t, err)
 	fs, err := NewFileStorage(tempFile.Name(), true)
@@ -505,7 +507,7 @@ func TestGetAllInFileStorage(t *testing.T) {
 			{"id":"PollCount","type":"counter","delta":777},
 			{"id":"RandomValue","type":"gauge","value":123.45}
 		]`),
-		0666,
+		0o600,
 	)
 	require.NoError(t, err)
 	fs, err := NewFileStorage(tempFile.Name(), true)
