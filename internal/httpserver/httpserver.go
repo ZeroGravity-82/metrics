@@ -13,6 +13,10 @@ import (
 	"zerogravity-82/metrics/internal/service/audit"
 )
 
+const (
+	readHeaderTimeout = 5 * time.Second
+)
+
 // HTTPServer - основной API-сервер сервиса метрик.
 //
 // Он запускает роутер, собранный handler.MetricRouter, на указанном адресе.
@@ -47,7 +51,7 @@ func (s *HTTPServer) Run(_ context.Context) error {
 	srv := http.Server{
 		Addr:              s.addr,
 		Handler:           handler.MetricRouter(s.storage, s.auditPublisher, s.key, s.logger),
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	err := srv.ListenAndServe()
 	if !errors.Is(err, http.ErrServerClosed) {

@@ -19,7 +19,10 @@ func (i *testItem) Reset() {
 // TestGet_ReturnsZeroValueWhenEmpty проверяет, что пустой пул возвращает нулевое значение типа.
 func TestGet_ReturnsZeroValueWhenEmpty(t *testing.T) {
 	// Arrange
-	p := New[*testItem]()
+	newF := func() *testItem {
+		return nil
+	}
+	p := New[*testItem](newF)
 
 	// Act
 	got := p.Get()
@@ -31,7 +34,10 @@ func TestGet_ReturnsZeroValueWhenEmpty(t *testing.T) {
 // TestPut_ResetsItemBeforeStoring проверяет, что при возврате в пул объект очищается через Reset.
 func TestPut_ResetsItemBeforeStoring(t *testing.T) {
 	// Arrange
-	p := New[*testItem]()
+	newF := func() *testItem {
+		return nil
+	}
+	p := New[*testItem](newF)
 	item := &testItem{value: 42}
 
 	// Act
@@ -42,30 +48,13 @@ func TestPut_ResetsItemBeforeStoring(t *testing.T) {
 	require.Equal(t, 1, item.resetCalls)
 }
 
-// TestGet_ReturnsItemsInLIFOOrder проверяет, что пул извлекает элементы в порядке LIFO.
-func TestGet_ReturnsItemsInLIFOOrder(t *testing.T) {
-	// Arrange
-	p := New[*testItem]()
-	first := &testItem{value: 1}
-	second := &testItem{value: 2}
-	p.Put(first)
-	p.Put(second)
-
-	// Act
-	gotFirst := p.Get()
-	gotSecond := p.Get()
-
-	// Assert
-	require.Same(t, second, gotFirst)
-	require.Same(t, first, gotSecond)
-	require.Equal(t, 1, gotFirst.resetCalls)
-	require.Equal(t, 1, gotSecond.resetCalls)
-}
-
 // TestGet_ReturnsZeroValueAfterDraining проверяет, что после извлечения всех элементов пул снова ведет себя как пустой.
 func TestGet_ReturnsZeroValueAfterDraining(t *testing.T) {
 	// Arrange
-	p := New[*testItem]()
+	newF := func() *testItem {
+		return nil
+	}
+	p := New[*testItem](newF)
 	p.Put(&testItem{value: 7})
 
 	// Act

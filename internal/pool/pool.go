@@ -7,35 +7,30 @@ type Resetter interface {
 	Reset()
 }
 
-// Pool хранит переиспользуемые объекты и возвращает их в порядке LIFO.
+// Pool хранит переиспользуемые объекты одного типа, удовлетворяющего интерфейс Resetter.
+// Порядок выдачи не гарантируется.
 type Pool[T Resetter] struct {
-	items []T
-	mu    sync.Mutex
+	pool sync.Pool
 }
 
 // New создает пустой пул для объектов, реализующих Resetter.
-func New[T Resetter]() *Pool[T] {
-	return &(Pool[T]{})
+func New[T Resetter](newF func() T) *Pool[T] {
+	return &(Pool[T]{
+		pool: sync.Pool{
+			New: func() any {
+				return newF()
+			},
+		},
+	})
 }
 
 // Get возвращает последний сохраненный объект из пула или нулевое значение, если пул пуст.
 func (p *Pool[T]) Get() T {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	l := len(p.items)
-	if l <= 0 {
-		var zero T
-		return zero
-	}
-	i := p.items[l-1]
-	p.items = p.items[:l-1]
-	return i
+	return p.pool.Get().(T)
 }
 
 // Put вызывает Reset для x и помещает его в пул для повторного использования.
 func (p *Pool[T]) Put(x T) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	x.Reset()
-	p.items = append(p.items, x)
+	p.pool.Put(x)
 }
