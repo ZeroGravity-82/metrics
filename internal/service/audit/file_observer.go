@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"zerogravity-82/metrics/internal/model"
@@ -19,7 +20,8 @@ type FileObserver struct {
 
 // NewFileObserver создает FileObserver с файлом для записи по указанному пути.
 func NewFileObserver(path string) (*FileObserver, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	cleanPath := filepath.Clean(path)
+	f, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file for audit observer: %w", err)
 	}

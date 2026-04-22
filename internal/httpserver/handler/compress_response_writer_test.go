@@ -19,7 +19,9 @@ func TestCompressWriter(t *testing.T) {
 	writer := newCompressResponseWriter(recorder)
 	data1 := []byte("Hello, ")
 	data2 := []byte("World!")
-	totalData := append(data1, data2...)
+	var totalData []byte
+	totalData = append(totalData, data1...)
+	totalData = append(totalData, data2...)
 	customStatusCode := http.StatusCreated
 
 	// Act

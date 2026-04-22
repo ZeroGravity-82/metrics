@@ -183,7 +183,8 @@ func BenchmarkFileStorage_RestoreMetrics(b *testing.B) {
 
 	// Measure
 	for b.Loop() {
-		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
+		// #nosec G304 -- path is from b.TempDir(), not user input
+		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 		if err != nil {
 			b.Fatalf("open failed: %v", err)
 		}

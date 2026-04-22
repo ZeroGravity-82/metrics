@@ -41,8 +41,10 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 	}
 
 	var storage handler.Storage
-	if cfg.DatabaseDSN != "" {
-		db, err := sqlx.Connect("pgx", cfg.DatabaseDSN)
+	switch true {
+	case cfg.DatabaseDSN != "":
+		var db *sqlx.DB
+		db, err = sqlx.Connect("pgx", cfg.DatabaseDSN)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to the database: %w", err)
 		}
@@ -51,12 +53,12 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 			return nil, fmt.Errorf("migrations error: %w", err)
 		}
 		storage = repository.NewDBStorage(db)
-	} else if cfg.FileStoragePath != "" {
+	case cfg.FileStoragePath != "":
 		storage, err = repository.NewFileStorage(cfg.FileStoragePath, cfg.Restore)
 		if err != nil {
 			return nil, fmt.Errorf("storage error: %w", err)
 		}
-	} else {
+	default:
 		storage = repository.NewMemStorage()
 	}
 	publisher, err := buildAuditPublisher(cfg, logger)

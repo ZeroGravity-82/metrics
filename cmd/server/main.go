@@ -9,9 +9,17 @@ import (
 	"github.com/rs/zerolog"
 
 	"zerogravity-82/metrics/internal/application"
+	"zerogravity-82/metrics/internal/buildinfo"
+)
+
+var (
+	buildVersion string
+	buildDate    string
+	buildCommit  string
 )
 
 func main() {
+	buildinfo.Print(buildVersion, buildDate, buildCommit)
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 	if err := run(logger); err != nil {
 		logger.Fatal().Err(err).Msg("Service terminated with error")

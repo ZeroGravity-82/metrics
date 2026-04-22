@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	// #nosec G108 -- PprofServer.addr is empty by default
 	_ "net/http/pprof" // register pprof handlers
+	"time"
 
 	"zerogravity-82/metrics/internal/httpserver/handler"
 
@@ -33,7 +35,12 @@ func (s *PprofServer) Run(_ context.Context) error {
 		return nil
 	}
 	s.logger.Info().Str("address", s.addr).Msg("pprof server started")
-	err := http.ListenAndServe(s.addr, handler.PprofRouter())
+	srv := http.Server{
+		Addr:              s.addr,
+		Handler:           handler.PprofRouter(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	err := srv.ListenAndServe()
 	if !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("pprof server error: %w", err)
 	}
