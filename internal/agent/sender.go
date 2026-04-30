@@ -3,7 +3,10 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -19,6 +22,7 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 
 	"zerogravity-82/metrics/internal/config"
+	"zerogravity-82/metrics/internal/encryption"
 	"zerogravity-82/metrics/internal/model"
 )
 
@@ -185,7 +189,13 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 				defer s.Release()
 
 				mCopy := m.copyMetricsAndResetPollCount()
-				if err := sendReport(cfg.ServerAddr, cfg.Key, mCopy, httpClient); err != nil {
+				if err := sendReport(
+					cfg.ServerAddr,
+					cfg.SignatureKey,
+					cfg.CryptoKeyPath,
+					mCopy,
+					httpClient,
+				); err != nil {
 					logger.Error().Err(err).Msg("Error on sending metrics")
 
 					// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
@@ -214,18 +224,32 @@ func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Durati
 	}
 }
 
-func sendReport(serverAddr, key string, metrics map[string]model.Metrics, httpClient *resty.Client) error {
+func sendReport(
+	serverAddr,
+	signatureKey,
+	cryptoKeyPath string,
+	metrics map[string]model.Metrics,
+	httpClient *resty.Client,
+) error {
 	metricsSlice := make([]model.Metrics, 0, len(metrics))
 	for _, v := range metrics {
 		metricsSlice = append(metricsSlice, v)
 	}
-	if err := sendMetrics(serverAddr, key, metricsSlice, httpClient); err != nil {
+	if err := sendMetrics(serverAddr, signatureKey, cryptoKeyPath, metricsSlice, httpClient); err != nil {
 		return err
 	}
 	return nil
 }
 
-func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *resty.Client) error {
+func sendMetrics(
+	serverAddr,
+	signatureKey,
+	cryptoKeyPath string,
+	metrics []model.Metrics,
+	httpClient *resty.Client,
+) error {
+	const xEncryptedHeader = "aes-gcm+rsa-oaep-sha256"
+
 	jsonBz, err := marshal(metrics)
 	if err != nil {
 		return err
@@ -233,6 +257,16 @@ func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *re
 	gzipBz, err := compress(jsonBz)
 	if err != nil {
 		return err
+	}
+	var encryptedGzipBz, encryptedKeyBz, bodyBz []byte
+	if cryptoKeyPath != "" {
+		encryptedGzipBz, encryptedKeyBz, err = encryption.Encrypt(gzipBz, cryptoKeyPath)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt metrics: %w", err)
+		}
+		bodyBz = encryptedGzipBz
+	} else {
+		bodyBz = gzipBz
 	}
 
 	serverAddr = addDefaultURLSchema(serverAddr)
@@ -243,9 +277,13 @@ func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *re
 	r := httpClient.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
-		SetBody(gzipBz)
-	if key != "" {
-		r.SetHeader("HashSHA256", fmt.Sprintf("%s", generateHexEncodedSignature(jsonBz, key)))
+		SetBody(bodyBz)
+	if signatureKey != "" {
+		r.SetHeader("HashSHA256", fmt.Sprintf("%s", generateHexEncodedSignature(jsonBz, signatureKey)))
+	}
+	if cryptoKeyPath != "" {
+		r.SetHeader("X-Encrypted", xEncryptedHeader)
+		r.SetHeader("X-Encrypted-Key", base64.StdEncoding.EncodeToString(encryptedKeyBz))
 	}
 	_, err = r.Post(urlPath)
 	if err != nil {

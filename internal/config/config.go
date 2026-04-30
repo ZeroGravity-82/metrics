@@ -30,8 +30,10 @@ type AgentConfig struct {
 	ReportInterval int
 	// PollInterval — периодичность опроса runtime-метрик (в секундах).
 	PollInterval int
-	// Key — ключ для подписи запросов (опционально).
-	Key string
+	// SignatureKey — ключ для подписи запросов (опционально).
+	SignatureKey string
+	// CryptoKeyPath — путь к публичному ключу для шифрования данных (опционально).
+	CryptoKeyPath string
 	// RateLimit — ограничение на число одновременно исходящих запросов агента.
 	RateLimit int
 }
@@ -50,8 +52,10 @@ type ServerConfig struct {
 	Restore bool
 	// DatabaseDSN — строка подключения к PostgreSQL (опционально).
 	DatabaseDSN string
-	// Key — ключ для подписи запросов (опционально).
-	Key string
+	// SignatureKey — ключ для подписи запросов (опционально).
+	SignatureKey string
+	// CryptoKeyPath — путь к приватному ключу для дешифрования данных (опционально).
+	CryptoKeyPath string
 	// AuditFile — путь к файлу для записи сообщений событий аудита (опционально).
 	AuditFile string
 	// AuditURL — URL для отправки сообщений событий аудита по HTTP (опционально).
@@ -68,7 +72,8 @@ func GetServerConfig() (ServerConfig, error) {
 	fileStoragePathFlag := flag.String("f", "", "путь до файла с метриками")
 	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
 	databaseDSNFlag := flag.String("d", "", "строка подключения к БД")
-	keyFlag := flag.String("k", "", "ключ для подписи запросов")
+	signatureKeyFlag := flag.String("k", "", "ключ для подписи запросов")
+	cryptoKeyPathFlag := flag.String("crypto-key", "", "путь к приватному ключу для дешифрования данных")
 	auditFileFlag := flag.String("audit-file", "", "путь к файлу с логами аудита")
 	auditURLFlag := flag.String("audit-url", "", "полный URL для отправки логов аудита")
 	pprofAddrFlag := flag.String("pprof", "", "адрес pprof-сервера")
@@ -92,7 +97,11 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	key, err := getKey(keyFlag)
+	signatureKey, err := getSignatureKey(signatureKeyFlag)
+	if err != nil {
+		return cfg, err
+	}
+	cryptoKeyPath, err := getCryptoKeyPath(cryptoKeyPathFlag)
 	if err != nil {
 		return cfg, err
 	}
@@ -111,7 +120,8 @@ func GetServerConfig() (ServerConfig, error) {
 	cfg.FileStoragePath = fileStoragePath
 	cfg.Restore = restore
 	cfg.DatabaseDSN = databaseDSN
-	cfg.Key = key
+	cfg.SignatureKey = signatureKey
+	cfg.CryptoKeyPath = cryptoKeyPath
 	cfg.AuditFile = auditFile
 	cfg.AuditURL = auditURL
 	cfg.PprofAddr = pprofAddr
@@ -208,7 +218,8 @@ func GetAgentConfig() (AgentConfig, error) {
 	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
 	reportIntervalFlag := flag.Int("r", defaultReportInterval, "частота отправки метрик на сервер")
 	pollIntervalFlag := flag.Int("p", defaultPollInterval, "частота опроса метрик из пакета runtime")
-	keyFlag := flag.String("k", "", "ключ для подписи запросов")
+	signatureKeyFlag := flag.String("k", "", "ключ для подписи запросов")
+	cryptoKeyPathFlag := flag.String("crypto-key", "", "путь к публичному ключу для шифрования данных")
 	rateLimitFlag := flag.Int("l", defaultRateLimit, "количество одновременно исходящих запросов агента на сервер")
 	flag.Parse()
 
@@ -225,7 +236,11 @@ func GetAgentConfig() (AgentConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	key, err := getKey(keyFlag)
+	signatureKey, err := getSignatureKey(signatureKeyFlag)
+	if err != nil {
+		return cfg, err
+	}
+	cryptoKeyPath, err := getCryptoKeyPath(cryptoKeyPathFlag)
 	if err != nil {
 		return cfg, err
 	}
@@ -237,7 +252,8 @@ func GetAgentConfig() (AgentConfig, error) {
 	cfg.ServerAddr = serverAddr
 	cfg.ReportInterval = reportInterval
 	cfg.PollInterval = pollInterval
-	cfg.Key = key
+	cfg.SignatureKey = signatureKey
+	cfg.CryptoKeyPath = cryptoKeyPath
 	cfg.RateLimit = rateLimit
 	return cfg, nil
 }
@@ -274,12 +290,20 @@ func getPollInterval(pollIntervalFlag *int) (int, error) {
 	return pollIntervalEnv, nil
 }
 
-func getKey(keyFlag *string) (string, error) {
-	keyEnvStr, ok := os.LookupEnv("KEY")
+func getSignatureKey(signatureKeyFlag *string) (string, error) {
+	signatureKeyEnvStr, ok := os.LookupEnv("KEY")
 	if !ok {
-		return *keyFlag, nil
+		return *signatureKeyFlag, nil
 	}
-	return keyEnvStr, nil
+	return signatureKeyEnvStr, nil
+}
+
+func getCryptoKeyPath(cryptoKeyPathFlag *string) (string, error) {
+	cryptoKeyPathEnvStr, ok := os.LookupEnv("CRYPTO_KEY")
+	if !ok {
+		return *cryptoKeyPathFlag, nil
+	}
+	return cryptoKeyPathEnvStr, nil
 }
 
 func getAuditFile(auditFileFlag *string) (string, error) {

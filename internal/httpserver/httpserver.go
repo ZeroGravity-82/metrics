@@ -24,7 +24,8 @@ type HTTPServer struct {
 	addr           string
 	storage        handler.Storage
 	auditPublisher *audit.AsyncPublisher
-	key            string
+	signatureKey   string
+	cryptoKeyPath  string
 	logger         zerolog.Logger
 }
 
@@ -33,14 +34,16 @@ func NewHTTPServer(
 	addr string,
 	storage handler.Storage,
 	auditPublisher *audit.AsyncPublisher,
-	key string,
+	signatureKey string,
+	cryptoKeyPath string,
 	logger zerolog.Logger,
 ) *HTTPServer {
 	return &HTTPServer{
 		addr:           addr,
 		storage:        storage,
 		auditPublisher: auditPublisher,
-		key:            key,
+		signatureKey:   signatureKey,
+		cryptoKeyPath:  cryptoKeyPath,
 		logger:         logger,
 	}
 }
@@ -50,7 +53,7 @@ func (s *HTTPServer) Run(_ context.Context) error {
 	s.logger.Info().Str("address", s.addr).Msg("http server started")
 	srv := http.Server{
 		Addr:              s.addr,
-		Handler:           handler.MetricRouter(s.storage, s.auditPublisher, s.key, s.logger),
+		Handler:           handler.MetricRouter(s.storage, s.auditPublisher, s.signatureKey, s.cryptoKeyPath, s.logger),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	err := srv.ListenAndServe()

@@ -4,15 +4,23 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 
+	"zerogravity-82/metrics/internal/encryption"
 	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/service/audit"
 )
@@ -90,13 +98,13 @@ func BenchmarkSigningResponseWriter_CalculateSignature(b *testing.B) {
 func BenchmarkMetricRouter_validateSignature(b *testing.B) {
 	// Setup
 	body := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
-	key := "secret"
-	sig := hex.EncodeToString(generateSignature(body, key))
+	signatureKey := "secret"
+	sig := hex.EncodeToString(generateSignature(body, signatureKey))
 	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
-		sinkErr = validateSignature(sig, body, key)
+		sinkErr = validateSignature(sig, body, signatureKey)
 	}
 }
 
@@ -120,7 +128,7 @@ func BenchmarkMetricRouter_buildMetric(b *testing.B) {
 func BenchmarkMetricRouter_UpdateRoute(b *testing.B) {
 	// Setup
 	logger := zerolog.Nop()
-	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, "", logger)
+	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, "", "", logger)
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
 	b.ResetTimer()
@@ -139,7 +147,7 @@ func BenchmarkMetricRouter_UpdateRoute(b *testing.B) {
 func BenchmarkMetricRouter_UpdateRoute_GzipIn_GzipOut(b *testing.B) {
 	// Setup
 	logger := zerolog.Nop()
-	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, "", logger)
+	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, "", "", logger)
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
 	gzPayload := gzipBody(payload)
@@ -169,11 +177,12 @@ func gzipBody(payload []byte) []byte {
 func BenchmarkMetricRouter_UpdateRoute_WithSignature(b *testing.B) {
 	// Setup
 	logger := zerolog.Nop()
-	key := "secret"
-	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, key, logger)
+	signatureKey := "secret"
+	cryptoKeyPath := ""
+	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, cryptoKeyPath, logger)
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
-	sig := hex.EncodeToString(generateSignature(payload, key))
+	sig := hex.EncodeToString(generateSignature(payload, signatureKey))
 	b.ResetTimer()
 
 	// Measure
@@ -186,4 +195,68 @@ func BenchmarkMetricRouter_UpdateRoute_WithSignature(b *testing.B) {
 		r.ServeHTTP(w, req)
 		sinkInt = w.statusCode
 	}
+}
+
+func BenchmarkMetricRouter_UpdateRoute_WithEncryption(b *testing.B) {
+	// Setup
+	logger := zerolog.Nop()
+	signatureKey := ""
+	privateKeyPath, publicKeyPath := writeBenchmarkRSAKeyPair(b)
+	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, privateKeyPath, logger)
+
+	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
+	encryptedData, encryptedKey, err := encryption.Encrypt(payload, publicKeyPath)
+	if err != nil {
+		b.Fatalf("failed to encrypt payload: %v", err)
+	}
+	b.ResetTimer()
+
+	// Measure
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(encryptedData))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Encrypted", "aes-gcm+rsa-oaep-sha256")
+		req.Header.Set("X-Encrypted-Key", base64.StdEncoding.EncodeToString(encryptedKey))
+
+		w := newDiscardResponseWriter()
+		r.ServeHTTP(w, req)
+		sinkInt = w.statusCode
+	}
+}
+
+func writeBenchmarkRSAKeyPair(b *testing.B) (privateKeyPath, publicKeyPath string) {
+	b.Helper()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		b.Fatalf("failed to generate private key: %v", err)
+	}
+
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+
+	publicKeyDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		b.Fatalf("failed to marshal public key: %v", err)
+	}
+
+	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: publicKeyDER,
+	})
+
+	dir := b.TempDir()
+	privateKeyPath = filepath.Join(dir, "private.pem")
+	publicKeyPath = filepath.Join(dir, "public.pem")
+
+	if err := os.WriteFile(privateKeyPath, privateKeyPEM, 0o600); err != nil {
+		b.Fatalf("failed to write private key: %v", err)
+	}
+	if err := os.WriteFile(publicKeyPath, publicKeyPEM, 0o600); err != nil {
+		b.Fatalf("failed to write public key: %v", err)
+	}
+
+	return privateKeyPath, publicKeyPath
 }

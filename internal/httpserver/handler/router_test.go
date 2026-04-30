@@ -34,8 +34,9 @@ func TestUpdateMetricHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -181,8 +182,9 @@ func TestUpdateHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -350,8 +352,9 @@ func TestUpdatesHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -507,8 +510,9 @@ func TestGetMetricHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -600,8 +604,9 @@ func TestGetHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -723,8 +728,9 @@ func TestGetMetricListHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -788,8 +794,9 @@ func TestPingHandler(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	ds := repository.NewDBStorage(sqlxDB)
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ds, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ds, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
