@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -843,4 +844,65 @@ func TestPingHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMetricRouter_FailsFastWhenEncryptedHeaderWithoutServerKey(t *testing.T) {
+	// Arrange
+	logger := zerolog.Nop()
+	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
+	ts := httptest.NewServer(MetricRouter(ms, a, "", "", logger))
+	defer ts.Close()
+
+	payload := []byte(`{"id":"PollCount","type":"counter","delta":1}`)
+	gzPayload := gzipBody(payload)
+	urlPath, err := url.JoinPath(ts.URL, "/update")
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPost, urlPath, bytes.NewReader(gzPayload))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("X-Encrypted", "aes-gcm+rsa-oaep-sha256")
+	req.Header.Set("X-Encrypted-Key", base64.StdEncoding.EncodeToString([]byte("encrypted-key")))
+
+	// Act
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	// Assert
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, string(body), "server crypto key is not configured")
+}
+
+func TestMetricRouter_FailsFastWhenSignatureHeaderWithoutServerKey(t *testing.T) {
+	// Arrange
+	logger := zerolog.Nop()
+	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
+	ts := httptest.NewServer(MetricRouter(ms, a, "", "", logger))
+	defer ts.Close()
+
+	payload := []byte(`{"id":"PollCount","type":"counter","delta":1}`)
+	gzPayload := gzipBody(payload)
+	urlPath, err := url.JoinPath(ts.URL, "/update")
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPost, urlPath, bytes.NewReader(gzPayload))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("HashSHA256", "deadbeef")
+
+	// Act
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	// Assert
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, string(body), "server signature key is not configured")
 }

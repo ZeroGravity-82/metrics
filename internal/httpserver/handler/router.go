@@ -39,14 +39,10 @@ func MetricRouter(s Storage, a AuditPublisher, signatureKey, cryptoKeyPath strin
 		middleware.StripSlashes,
 		middleware.RealIP,
 		withLogging(logger),
+		withEncryption(cryptoKeyPath),
+		withGzip(logger),
+		withSignature(signatureKey, logger),
 	)
-	if cryptoKeyPath != "" {
-		r.Use(withEncryption(cryptoKeyPath))
-	}
-	r.Use(withGzip(logger))
-	if signatureKey != "" {
-		r.Use(withSignature(signatureKey, logger))
-	}
 	h := New(s, a, logger)
 
 	textPlainContentType := middleware.AllowContentType("text/plain")
@@ -94,17 +90,23 @@ func withSignature(signatureKey string, logger zerolog.Logger) func(next http.Ha
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			signatureHeader := r.Header.Get(signatureHeaderName)
+			if signatureHeader == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if signatureKey == "" {
+				http.Error(w, "server signature key is not configured", http.StatusBadRequest)
+				return
+			}
+
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("unable to read request body: %s", err.Error()), http.StatusBadRequest)
 				return
 			}
 			if len(body) > 0 {
-				if r.Header.Get(signatureHeaderName) == "" {
-					http.Error(w, fmt.Sprintf("header %s is not provided", signatureHeaderName), http.StatusBadRequest)
-					return
-				}
-				err = validateSignature(r.Header.Get(signatureHeaderName), body, signatureKey)
+				err = validateSignature(signatureHeader, body, signatureKey)
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
@@ -176,30 +178,37 @@ func withEncryption(cryptoKeyPath string) func(next http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			xEncrypted := r.Header.Get(xEncryptedHeaderName)
-			if xEncrypted != "" {
-				xEncryptedKey := r.Header.Get(xEncryptedKeyHeaderName)
-				if xEncryptedKey == "" {
-					http.Error(
-						w,
-						fmt.Sprintf("header %s is not provided", xEncryptedKeyHeaderName),
-						http.StatusBadRequest,
-					)
-					return
-				}
-				xEncryptedKeyBz, err := base64.StdEncoding.DecodeString(xEncryptedKey)
-				if err != nil {
-					http.Error(
-						w,
-						fmt.Sprintf("unable to decode header %q: %s", xEncryptedKeyHeaderName, err.Error()),
-						http.StatusBadRequest,
-					)
-					return
-				}
-				er := newEncryptRequestReader(r.Body, xEncryptedKeyBz, cryptoKeyPath)
-				defer er.Close()
-				r.Body = er
+			xEncryptedHeader := r.Header.Get(xEncryptedHeaderName)
+			if xEncryptedHeader == "" {
+				next.ServeHTTP(w, r)
+				return
 			}
+			if cryptoKeyPath == "" {
+				http.Error(w, "server crypto key is not configured", http.StatusBadRequest)
+				return
+			}
+
+			xEncryptedKeyHeader := r.Header.Get(xEncryptedKeyHeaderName)
+			if xEncryptedKeyHeader == "" {
+				http.Error(
+					w,
+					fmt.Sprintf("header %s is not provided", xEncryptedKeyHeaderName),
+					http.StatusBadRequest,
+				)
+				return
+			}
+			xEncryptedKeyBz, err := base64.StdEncoding.DecodeString(xEncryptedKeyHeader)
+			if err != nil {
+				http.Error(
+					w,
+					fmt.Sprintf("unable to decode header %q: %s", xEncryptedKeyHeaderName, err.Error()),
+					http.StatusBadRequest,
+				)
+				return
+			}
+			er := newEncryptRequestReader(r.Body, xEncryptedKeyBz, cryptoKeyPath)
+			defer er.Close()
+			r.Body = er
 			next.ServeHTTP(w, r)
 		})
 	}
