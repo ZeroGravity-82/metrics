@@ -245,8 +245,7 @@ func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *re
 		SetHeader("Content-Encoding", "gzip").
 		SetBody(gzipBz)
 	if key != "" {
-		hashBz := sha256.Sum256(jsonBz)
-		r.SetHeader("HashSHA256", fmt.Sprintf("%x", hashBz))
+		r.SetHeader("HashSHA256", fmt.Sprintf("%s", generateHexEncodedSignature(jsonBz, key)))
 	}
 	_, err = r.Post(urlPath)
 	if err != nil {
@@ -293,4 +292,11 @@ func addDefaultURLSchema(urlPath string) string {
 		urlPrefix = "https://"
 	}
 	return urlPrefix + host + ":" + port
+}
+
+func generateHexEncodedSignature(data []byte, key string) string {
+	h := hmac.New(sha256.New, []byte(key))
+	h.Write(data)
+	signature := hex.EncodeToString(h.Sum(nil))
+	return signature
 }

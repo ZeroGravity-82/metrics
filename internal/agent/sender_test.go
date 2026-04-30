@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"compress/gzip"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -143,17 +148,17 @@ func TestSendReport(t *testing.T) {
 
 	tests := []struct {
 		name                string
-		key                 string
+		signatureKey        string
 		wantSignatureHeader bool
 	}{
 		{
 			name:                "with signature",
-			key:                 "secret",
+			signatureKey:        "secret",
 			wantSignatureHeader: true,
 		},
 		{
 			name:                "without signature",
-			key:                 "",
+			signatureKey:        "",
 			wantSignatureHeader: false,
 		},
 	}
@@ -163,22 +168,29 @@ func TestSendReport(t *testing.T) {
 			// Arrange
 			var processedMetricIDs []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Arrange
+				zr, err := gzip.NewReader(r.Body)
+				require.NoError(t, err)
+				jsonBz, err := io.ReadAll(zr)
+				require.NoError(t, err)
+
+				var receivedMetrics []model.Metrics
+				jr := bytes.NewReader(jsonBz)
+				dec := json.NewDecoder(jr)
+				err = dec.Decode(&receivedMetrics)
+				require.NoError(t, err)
+
 				// Assert
 				assert.Equal(t, "/updates", r.URL.Path)
 
 				if tt.wantSignatureHeader {
-					assert.NotEmpty(t, r.Header.Get("HashSHA256"))
+					var decodedSig []byte
+					decodedSig, err = hex.DecodeString(r.Header.Get("HashSHA256"))
+					require.NoError(t, err)
+					assert.True(t, hmac.Equal(generateSignature(jsonBz, tt.signatureKey), decodedSig))
 				} else {
 					assert.Empty(t, r.Header.Get("HashSHA256"))
 				}
-
-				zr, err := gzip.NewReader(r.Body)
-				require.NoError(t, err)
-
-				var receivedMetrics []model.Metrics
-				dec := json.NewDecoder(zr)
-				err = dec.Decode(&receivedMetrics)
-				require.NoError(t, err)
 
 				for _, m := range receivedMetrics {
 					assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
@@ -190,13 +202,19 @@ func TestSendReport(t *testing.T) {
 			httpClient := resty.New()
 
 			// Act
-			err := sendReport(server.URL, tt.key, sentMetrics.data, httpClient)
+			err := sendReport(server.URL, tt.signatureKey, "", sentMetrics.data, httpClient)
 			require.NoError(t, err)
 
 			// Assert
 			assert.Equal(t, len(sentMetrics.data), len(processedMetricIDs))
 		})
 	}
+}
+
+func generateSignature(data []byte, key string) []byte {
+	h := hmac.New(sha256.New, []byte(key))
+	h.Write(data)
+	return h.Sum(nil)
 }
 
 func TestAddDefaultSchema(t *testing.T) {
