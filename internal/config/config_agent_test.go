@@ -1,10 +1,10 @@
 package config
 
 import (
-	"flag"
 	"os"
 	"testing"
 
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +13,7 @@ import (
 // заданы
 func TestCanGetAgentConfig_Default(t *testing.T) {
 	// Arrange
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ExitOnError)
 	os.Args = []string{"agent"}
 	err := os.Unsetenv("ADDRESS")
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestCanGetAgentConfig_Default(t *testing.T) {
 // TestCanGetAgentConfig_Flag проверяет парсинг параметров командной строки агента
 func TestCanGetAgentConfig_Flag(t *testing.T) {
 	// Arrange
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ExitOnError)
 	os.Args = []string{
 		"agent",
 		"-a=127.0.0.1:8081",
@@ -52,7 +52,7 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 		"-p=1",
 		"-k=secret",
 		"-l=15",
-		"-crypto-key=agent-public.pem",
+		"--crypto-key=agent-public.pem",
 	}
 	err := os.Unsetenv("ADDRESS")
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 // TestCanGetAgentConfig_Env проверяет парсинг переменных окружения агента
 func TestCanGetAgentConfig_Env(t *testing.T) {
 	// Arrange
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ExitOnError)
 	os.Args = []string{"agent"}
 	err := os.Setenv("ADDRESS", "127.0.0.1:8081")
 	require.NoError(t, err)
@@ -114,14 +114,14 @@ func TestCanGetAgentConfig_Env(t *testing.T) {
 // TestCanGetAgentConfig_EnvPrecedence проверяет приоритет переменных окружения над параметрами командной строки агента
 func TestCanGetAgentConfig_EnvPrecedence(t *testing.T) {
 	// Arrange
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ExitOnError)
 	os.Args = []string{
 		"agent",
 		"-a=127.0.0.1:8081",
 		"-r=5",
 		"-p=1",
 		"-k=secret",
-		"-crypto-key=agent-flag-public.pem",
+		"--crypto-key=agent-flag-public.pem",
 		"-l=15",
 	}
 	err := os.Setenv("ADDRESS", "localhost:8085")

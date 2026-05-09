@@ -4,11 +4,12 @@ package config
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/spf13/pflag"
 )
 
 const (
@@ -67,17 +68,17 @@ type ServerConfig struct {
 // GetServerConfig парсит флаги/переменные окружения и возвращает ServerConfig.
 func GetServerConfig() (ServerConfig, error) {
 	var serverAddrFlag string
-	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
-	storeIntervalFlag := flag.Int("i", defaultStoreInterval, "интервал сохранения метрик на диск")
-	fileStoragePathFlag := flag.String("f", "", "путь до файла с метриками")
-	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
-	databaseDSNFlag := flag.String("d", "", "строка подключения к БД")
-	signatureKeyFlag := flag.String("k", "", "ключ для подписи запросов")
-	cryptoKeyPathFlag := flag.String("crypto-key", "", "путь к приватному ключу для дешифрования данных")
-	auditFileFlag := flag.String("audit-file", "", "путь к файлу с логами аудита")
-	auditURLFlag := flag.String("audit-url", "", "полный URL для отправки логов аудита")
-	pprofAddrFlag := flag.String("pprof", "", "адрес pprof-сервера")
-	flag.Parse()
+	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	storeIntervalFlag := pflag.IntP("store-interval", "i", defaultStoreInterval, "интервал сохранения метрик на диск")
+	fileStoragePathFlag := pflag.StringP("file-storage-path", "f", "", "путь до файла с метриками")
+	restoreFlag := pflag.BoolP("restore", "r", defaultRestore, "восстанавливать метрики из файла при старте")
+	databaseDSNFlag := pflag.StringP("database-dsn", "d", "", "строка подключения к БД")
+	signatureKeyFlag := pflag.StringP("signature-key", "k", "", "ключ для подписи запросов")
+	cryptoKeyPathFlag := pflag.StringP("crypto-key", "", "", "путь к приватному ключу для дешифрования данных")
+	auditFileFlag := pflag.StringP("audit-file", "", "", "путь к файлу с логами аудита")
+	auditURLFlag := pflag.StringP("audit-url", "", "", "полный URL для отправки логов аудита")
+	pprofAddrFlag := pflag.StringP("pprof", "", "", "адрес pprof-сервера")
+	pflag.Parse()
 
 	cfg := ServerConfig{}
 	serverAddr, err := getServerAddr(serverAddrFlag)
@@ -215,13 +216,13 @@ func validateServerAddr(v string) error {
 // GetAgentConfig парсит флаги/переменные окружения и возвращает AgentConfig.
 func GetAgentConfig() (AgentConfig, error) {
 	var serverAddrFlag string
-	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
-	reportIntervalFlag := flag.Int("r", defaultReportInterval, "частота отправки метрик на сервер")
-	pollIntervalFlag := flag.Int("p", defaultPollInterval, "частота опроса метрик из пакета runtime")
-	signatureKeyFlag := flag.String("k", "", "ключ для подписи запросов")
-	cryptoKeyPathFlag := flag.String("crypto-key", "", "путь к публичному ключу для шифрования данных")
-	rateLimitFlag := flag.Int("l", defaultRateLimit, "количество одновременно исходящих запросов агента на сервер")
-	flag.Parse()
+	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	reportIntervalFlag := pflag.IntP("report-interval", "r", defaultReportInterval, "частота отправки метрик на сервер")
+	pollIntervalFlag := pflag.IntP("poll-interval", "p", defaultPollInterval, "частота опроса метрик из пакета runtime")
+	signatureKeyFlag := pflag.StringP("signature-key", "k", "", "ключ для подписи запросов")
+	cryptoKeyPathFlag := pflag.StringP("crypto-key", "", "", "путь к публичному ключу для шифрования данных")
+	rateLimitFlag := pflag.IntP("rate-limit", "l", defaultRateLimit, "количество одновременно исходящих запросов агента на сервер")
+	pflag.Parse()
 
 	cfg := AgentConfig{}
 	serverAddr, err := getServerAddr(serverAddrFlag)
