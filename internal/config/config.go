@@ -37,6 +37,8 @@ type AgentConfig struct {
 	CryptoKeyPath string
 	// RateLimit — ограничение на число одновременно исходящих запросов агента.
 	RateLimit int
+	// ConfigFileName - имя файла конфигурации (опционально).
+	ConfigFileName string
 }
 
 // ServerConfig описывает конфигурацию сервера метрик.
@@ -63,10 +65,13 @@ type ServerConfig struct {
 	AuditURL string
 	// PprofAddr — адрес pprof-сервера в формате host:port (опционально).
 	PprofAddr string
+	// ConfigFileName - имя файла конфигурации (опционально).
+	ConfigFileName string
 }
 
 // GetServerConfig парсит флаги/переменные окружения и возвращает ServerConfig.
 func GetServerConfig() (ServerConfig, error) {
+	configFileNameFlag := pflag.StringP("config", "c", "", "имя файла конфигурации")
 	var serverAddrFlag string
 	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
 	storeIntervalFlag := pflag.IntP("store-interval", "i", defaultStoreInterval, "интервал сохранения метрик на диск")
@@ -115,6 +120,7 @@ func GetServerConfig() (ServerConfig, error) {
 		return cfg, err
 	}
 	pprofAddr := getPprofAddr(pprofAddrFlag)
+	configFileName := getConfigFileName(configFileNameFlag)
 
 	cfg.ServerAddr = serverAddr
 	cfg.StoreInterval = storeInterval
@@ -126,6 +132,7 @@ func GetServerConfig() (ServerConfig, error) {
 	cfg.AuditFile = auditFile
 	cfg.AuditURL = auditURL
 	cfg.PprofAddr = pprofAddr
+	cfg.ConfigFileName = configFileName
 	return cfg, nil
 }
 
@@ -215,6 +222,7 @@ func validateServerAddr(v string) error {
 
 // GetAgentConfig парсит флаги/переменные окружения и возвращает AgentConfig.
 func GetAgentConfig() (AgentConfig, error) {
+	configFileNameFlag := pflag.StringP("config", "c", "", "имя файла конфигурации")
 	var serverAddrFlag string
 	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
 	reportIntervalFlag := pflag.IntP("report-interval", "r", defaultReportInterval, "частота отправки метрик на сервер")
@@ -249,6 +257,7 @@ func GetAgentConfig() (AgentConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	configFileName := getConfigFileName(configFileNameFlag)
 
 	cfg.ServerAddr = serverAddr
 	cfg.ReportInterval = reportInterval
@@ -256,6 +265,7 @@ func GetAgentConfig() (AgentConfig, error) {
 	cfg.SignatureKey = signatureKey
 	cfg.CryptoKeyPath = cryptoKeyPath
 	cfg.RateLimit = rateLimit
+	cfg.ConfigFileName = configFileName
 	return cfg, nil
 }
 
@@ -345,4 +355,12 @@ func getRateLimit(rateLimitFlag *int) (int, error) {
 		)
 	}
 	return rateLimitEnv, nil
+}
+
+func getConfigFileName(configFlag *string) string {
+	configEnvStr, ok := os.LookupEnv("CONFIG")
+	if !ok {
+		return *configFlag
+	}
+	return configEnvStr
 }

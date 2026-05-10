@@ -27,6 +27,8 @@ func TestCanGetAgentConfig_Default(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("CRYPTO_KEY")
 	require.NoError(t, err)
+	err = os.Unsetenv("CONFIG")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetAgentConfig()
@@ -39,6 +41,7 @@ func TestCanGetAgentConfig_Default(t *testing.T) {
 	assert.Equal(t, "", cfg.SignatureKey)
 	assert.Equal(t, defaultRateLimit, cfg.RateLimit)
 	assert.Equal(t, "", cfg.CryptoKeyPath)
+	assert.Equal(t, "", cfg.ConfigFileName)
 }
 
 // TestCanGetAgentConfig_Flag проверяет парсинг параметров командной строки агента
@@ -53,6 +56,7 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 		"-k=secret",
 		"-l=15",
 		"--crypto-key=agent-public.pem",
+		"-c=/path/to/config.json",
 	}
 	err := os.Unsetenv("ADDRESS")
 	require.NoError(t, err)
@@ -66,6 +70,8 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("CRYPTO_KEY")
 	require.NoError(t, err)
+	err = os.Unsetenv("CONFIG")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetAgentConfig()
@@ -78,6 +84,7 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 	assert.Equal(t, "secret", cfg.SignatureKey)
 	assert.Equal(t, 15, cfg.RateLimit)
 	assert.Equal(t, "agent-public.pem", cfg.CryptoKeyPath)
+	assert.Equal(t, "/path/to/config.json", cfg.ConfigFileName)
 }
 
 // TestCanGetAgentConfig_Env проверяет парсинг переменных окружения агента
@@ -97,6 +104,8 @@ func TestCanGetAgentConfig_Env(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("CRYPTO_KEY", "agent-env-public.pem")
 	require.NoError(t, err)
+	err = os.Setenv("CONFIG", "/path/to/config.json")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetAgentConfig()
@@ -109,6 +118,7 @@ func TestCanGetAgentConfig_Env(t *testing.T) {
 	assert.Equal(t, "everybodyknows", cfg.SignatureKey)
 	assert.Equal(t, 20, cfg.RateLimit)
 	assert.Equal(t, "agent-env-public.pem", cfg.CryptoKeyPath)
+	assert.Equal(t, "/path/to/config.json", cfg.ConfigFileName)
 }
 
 // TestCanGetAgentConfig_EnvPrecedence проверяет приоритет переменных окружения над параметрами командной строки агента
@@ -123,6 +133,7 @@ func TestCanGetAgentConfig_EnvPrecedence(t *testing.T) {
 		"-k=secret",
 		"--crypto-key=agent-flag-public.pem",
 		"-l=15",
+		"-c=/path/to/configA.json",
 	}
 	err := os.Setenv("ADDRESS", "localhost:8085")
 	require.NoError(t, err)
@@ -136,6 +147,8 @@ func TestCanGetAgentConfig_EnvPrecedence(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("CRYPTO_KEY", "agent-env-priority.pem")
 	require.NoError(t, err)
+	err = os.Setenv("CONFIG", "/path/to/configB.json")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetAgentConfig()
@@ -148,4 +161,5 @@ func TestCanGetAgentConfig_EnvPrecedence(t *testing.T) {
 	assert.Equal(t, "everybodyknows", cfg.SignatureKey)
 	assert.Equal(t, "agent-env-priority.pem", cfg.CryptoKeyPath)
 	assert.Equal(t, 20, cfg.RateLimit)
+	assert.Equal(t, "/path/to/configB.json", cfg.ConfigFileName)
 }

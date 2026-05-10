@@ -33,6 +33,8 @@ func TestCanGetServerConfig_Default(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("CRYPTO_KEY")
 	require.NoError(t, err)
+	err = os.Unsetenv("CONFIG")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetServerConfig()
@@ -48,6 +50,7 @@ func TestCanGetServerConfig_Default(t *testing.T) {
 	assert.Equal(t, "", cfg.AuditFile)
 	assert.Equal(t, "", cfg.AuditURL)
 	assert.Equal(t, "", cfg.CryptoKeyPath)
+	assert.Equal(t, "", cfg.ConfigFileName)
 }
 
 // TestCanGetServerConfig_Flag проверяет парсинг параметров командной строки сервера
@@ -65,6 +68,7 @@ func TestCanGetServerConfig_Flag(t *testing.T) {
 		"--audit-file=audit.log",
 		"--audit-url=https://audit.com",
 		"--crypto-key=server-private.pem",
+		"-c=/path/to/config.json",
 	}
 	err := os.Unsetenv("ADDRESS")
 	require.NoError(t, err)
@@ -84,6 +88,8 @@ func TestCanGetServerConfig_Flag(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("CRYPTO_KEY")
 	require.NoError(t, err)
+	err = os.Unsetenv("CONFIG")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetServerConfig()
@@ -99,6 +105,7 @@ func TestCanGetServerConfig_Flag(t *testing.T) {
 	assert.Equal(t, "audit.log", cfg.AuditFile)
 	assert.Equal(t, "https://audit.com", cfg.AuditURL)
 	assert.Equal(t, "server-private.pem", cfg.CryptoKeyPath)
+	assert.Equal(t, "/path/to/config.json", cfg.ConfigFileName)
 }
 
 // TestCanGetServerConfig_Env проверяет парсинг переменных окружения сервера
@@ -124,6 +131,8 @@ func TestCanGetServerConfig_Env(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("CRYPTO_KEY", "server-env-private.pem")
 	require.NoError(t, err)
+	err = os.Setenv("CONFIG", "/path/to/config.json")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetServerConfig()
@@ -139,6 +148,7 @@ func TestCanGetServerConfig_Env(t *testing.T) {
 	assert.Equal(t, "audit.log", cfg.AuditFile)
 	assert.Equal(t, "https://audit.com", cfg.AuditURL)
 	assert.Equal(t, "server-env-private.pem", cfg.CryptoKeyPath)
+	assert.Equal(t, "/path/to/config.json", cfg.ConfigFileName)
 }
 
 // TestCanGetServerConfig_EnvPrecedence проверяет приоритет переменных окружения над параметрами командной строки
@@ -157,6 +167,7 @@ func TestCanGetServerConfig_EnvPrecedence(t *testing.T) {
 		"--audit-file=audit.log",
 		"--audit-url=https://audit.com",
 		"--crypto-key=server-flag-private.pem",
+		"-c=/path/to/configA.json",
 	}
 	err := os.Setenv("ADDRESS", "localhost:8085")
 	require.NoError(t, err)
@@ -176,6 +187,8 @@ func TestCanGetServerConfig_EnvPrecedence(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("CRYPTO_KEY", "server-env-priority.pem")
 	require.NoError(t, err)
+	err = os.Setenv("CONFIG", "/path/to/configB.json")
+	require.NoError(t, err)
 
 	// Act
 	cfg, err := GetServerConfig()
@@ -191,4 +204,5 @@ func TestCanGetServerConfig_EnvPrecedence(t *testing.T) {
 	assert.Equal(t, "audit-2.log", cfg.AuditFile)
 	assert.Equal(t, "https://audit-2.com", cfg.AuditURL)
 	assert.Equal(t, "server-env-priority.pem", cfg.CryptoKeyPath)
+	assert.Equal(t, "/path/to/configB.json", cfg.ConfigFileName)
 }
