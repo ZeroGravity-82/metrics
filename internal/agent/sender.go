@@ -157,7 +157,7 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 	go func() {
 		defer wg.Done()
 
-		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+		ticker := time.NewTicker(time.Duration(cfg.PollInterval))
 		defer ticker.Stop()
 
 		for range ticker.C {
@@ -167,7 +167,7 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 	go func() {
 		defer wg.Done()
 
-		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+		ticker := time.NewTicker(time.Duration(cfg.PollInterval))
 		defer ticker.Stop()
 
 		for range ticker.C {
@@ -177,7 +177,7 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 	go func() {
 		defer wg.Done()
 
-		ticker := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
+		ticker := time.NewTicker(time.Duration(cfg.ReportInterval))
 		defer ticker.Stop()
 
 		s := NewSemaphore(cfg.RateLimit)
