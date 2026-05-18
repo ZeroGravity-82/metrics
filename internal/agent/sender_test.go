@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
 )
 
@@ -29,6 +32,7 @@ func float64Pointer(v float64) *float64 {
 	return &v
 }
 
+// TestPollMetrics проверяет, что pollMetrics() собирает райнтайм-метрики и счетчик опросов.
 func TestPollMetrics(t *testing.T) {
 	// Arrange
 	m := newMetrics()
@@ -67,6 +71,7 @@ func TestPollMetrics(t *testing.T) {
 	assert.Contains(t, m.data, "RandomValue")
 }
 
+// TestPollUtilMetrics проверяет, что pollUtilMetrics() собирает метрики памяти и CPU.
 func TestPollUtilMetrics(t *testing.T) {
 	// Arrange
 	logger := zerolog.Nop()
@@ -81,6 +86,7 @@ func TestPollUtilMetrics(t *testing.T) {
 	assert.Contains(t, m.data, "CPUutilization1")
 }
 
+// TestResetPollCount проверяет, что resetPollCount() сбрасывает счетчик PollCount.
 func TestResetPollCount(t *testing.T) {
 	// Arrange
 	m := newMetrics()
@@ -95,6 +101,8 @@ func TestResetPollCount(t *testing.T) {
 		m.data["PollCount"],
 	)
 }
+
+// TestIncrementPollCount проверяет, что incrementPollCount() увеличивает PollCount на единицу.
 func TestIncrementPollCount(t *testing.T) {
 	// Arrange
 	m := newMetrics()
@@ -111,6 +119,8 @@ func TestIncrementPollCount(t *testing.T) {
 	)
 }
 
+// TestCopyMetricsAndResetPollCount проверяет, что copyMetricsAndResetPollCount() возвращает копию и обнуляет PollCount
+// в исходных данных.
 func TestCopyMetricsAndResetPollCount(t *testing.T) {
 	// Arrange
 	pollCount := int64(10)
@@ -141,6 +151,8 @@ func TestCopyMetricsAndResetPollCount(t *testing.T) {
 	assert.NotEqual(t, originalMetrics.data["Alloc"], copiedMetrics["Alloc"]) // Изменение копии не влияет на оригинал
 }
 
+// TestSendReport проверяет, что sendReport() отправляет метрики на endpoint `/updates` и при необходимости подписывает
+// запрос.
 func TestSendReport(t *testing.T) {
 	// Arrange
 	sentMetrics := newMetrics()
@@ -217,6 +229,7 @@ func generateSignature(data []byte, key string) []byte {
 	return h.Sum(nil)
 }
 
+// TestAddDefaultSchema проверяет, что addDefaultURLSchema() подставляет корректную схему по умолчанию.
 func TestAddDefaultSchema(t *testing.T) {
 	// Arrange
 	tests := []struct {
@@ -251,6 +264,8 @@ func TestAddDefaultSchema(t *testing.T) {
 	}
 }
 
+// TestRetryAfterFunc проверяет последовательность задержек, которую retryAfterFunc() задает для повторных попыток
+// resty.
 func TestRetryAfterFunc(t *testing.T) {
 	// Arrange
 	httpClient := resty.New()
@@ -280,6 +295,7 @@ func TestRetryAfterFunc(t *testing.T) {
 	assert.Equal(t, 2*time.Second, duration)
 }
 
+// TestRestorePollCount проверяет, что restorePollCount() возвращает значение PollCount после неуспешной отправки.
 func TestRestorePollCount(t *testing.T) {
 	// Arrange
 	sentMetrics := newMetrics()
@@ -289,4 +305,133 @@ func TestRestorePollCount(t *testing.T) {
 
 	// Assert
 	assert.Equal(t, int64(3), *sentMetrics.data["PollCount"].Delta)
+}
+
+// TestRun_GracefulShutdown_FlushesPendingMetrics проверяет, что при остановке Run() отправляет накопленные, но еще не
+// зарепорченные метрики.
+func TestRun_GracefulShutdown_FlushesPendingMetrics(t *testing.T) {
+	// Arrange
+	var requestCount atomic.Int32
+	receivedMetricsCh := make(chan []model.Metrics, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+
+		zr, err := gzip.NewReader(r.Body)
+		require.NoError(t, err)
+		defer zr.Close()
+
+		jsonBz, err := io.ReadAll(zr)
+		require.NoError(t, err)
+
+		var receivedMetrics []model.Metrics
+		err = json.Unmarshal(jsonBz, &receivedMetrics)
+		require.NoError(t, err)
+
+		receivedMetricsCh <- receivedMetrics
+	}))
+	defer server.Close()
+
+	cfg := mustAgentConfigForTest(t, server.URL, "1h", "50ms", 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Act
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		Run(ctx, cfg, zerolog.Nop())
+	}()
+
+	time.Sleep(200 * time.Millisecond) // Даем агенту время накопить метрики, но не дойти до штатного ReportInterval.
+	assert.Zero(t, requestCount.Load())
+
+	cancel()
+
+	// Assert
+	select {
+	case <-runDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("agent did not stop after context cancellation")
+	}
+
+	select {
+	case metrics := <-receivedMetricsCh:
+		assert.NotEmpty(t, metrics)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for shutdown flush")
+	}
+	assert.EqualValues(t, 1, requestCount.Load())
+}
+
+func mustAgentConfigForTest(
+	t *testing.T,
+	serverAddr,
+	reportInterval,
+	pollInterval string,
+	rateLimit int,
+) config.AgentConfig {
+	t.Helper() // нужен, чтобы место ошибки require.NoError отображалось в тестовых функциях, а не в этом хелпере.
+
+	cfgJSON := []byte(`
+{
+  "address":"` + serverAddr + `",
+  "report_interval":"` + reportInterval + `",
+  "poll_interval":"` + pollInterval + `",
+  "rate_limit":` + "1" + `
+}
+`)
+	var cfg config.AgentConfig
+	require.NoError(t, json.Unmarshal(cfgJSON, &cfg))
+	cfg.RateLimit = rateLimit
+	return cfg
+}
+
+// TestRun_GracefulShutdown_WaitsForInFlightSend проверяет, что Run() не завершается, пока не закончится уже начатая
+// отправка.
+func TestRun_GracefulShutdown_WaitsForInFlightSend(t *testing.T) {
+	// Arrange
+	requestStarted := make(chan struct{})
+	releaseResponse := make(chan struct{})
+	var requestStartedOnce atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestStartedOnce.CompareAndSwap(false, true) {
+			close(requestStarted)
+		}
+		<-releaseResponse
+	}))
+	defer server.Close()
+
+	cfg := mustAgentConfigForTest(t, server.URL, "50ms", "10ms", 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Act
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		Run(ctx, cfg, zerolog.Nop())
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for request start")
+	}
+
+	cancel()
+
+	select {
+	case <-runDone:
+		t.Fatal("agent stopped before in-flight request completed")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(releaseResponse)
+
+	// Assert
+	select {
+	case <-runDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("agent did not wait for in-flight request")
+	}
 }

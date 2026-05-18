@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -126,6 +127,12 @@ func (m *metrics) pollUtilMetrics(logger zerolog.Logger) {
 }
 
 func (m *metrics) copyMetricsAndResetPollCount() map[string]model.Metrics {
+	mCopy := m.copyMetrics()
+	m.resetPollCount()
+	return mCopy
+}
+
+func (m *metrics) copyMetrics() map[string]model.Metrics {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -133,7 +140,6 @@ func (m *metrics) copyMetricsAndResetPollCount() map[string]model.Metrics {
 	for n, v := range m.data {
 		mCopy[n] = v
 	}
-	m.resetPollCount()
 	return mCopy
 }
 
@@ -149,31 +155,43 @@ func (m *metrics) restorePollCount(delta int64) {
 // Run запускает цикл опроса метрик и периодически отправляет их на сервер.
 //
 // Функция блокируется, пока процесс не будет остановлен.
-func Run(cfg config.AgentConfig, logger zerolog.Logger) {
+func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) {
 	m := newMetrics()
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
 		ticker := time.NewTicker(time.Duration(cfg.PollInterval))
 		defer ticker.Stop()
 
-		for range ticker.C {
-			m.pollMetrics()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.pollMetrics()
+			}
 		}
 	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
 		ticker := time.NewTicker(time.Duration(cfg.PollInterval))
 		defer ticker.Stop()
 
-		for range ticker.C {
-			m.pollUtilMetrics(logger)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.pollUtilMetrics(logger)
+			}
 		}
 	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
@@ -183,26 +201,46 @@ func Run(cfg config.AgentConfig, logger zerolog.Logger) {
 		s := NewSemaphore(cfg.RateLimit)
 		const maxRetries = 3
 		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
-		for range ticker.C {
-			s.Acquire()
-			go func() {
-				defer s.Release()
 
-				mCopy := m.copyMetricsAndResetPollCount()
-				if err := sendReport(
-					cfg.ServerAddr,
-					cfg.SignatureKey,
-					cfg.CryptoKeyPath,
-					mCopy,
-					httpClient,
-				); err != nil {
-					logger.Error().Err(err).Msg("Error on sending metrics")
-
-					// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
-					// возвращается в структуру metrics
-					m.restorePollCount(*mCopy["PollCount"].Delta)
+		for {
+			select {
+			case <-ctx.Done():
+				mCopy := m.copyMetrics()
+				if *mCopy["PollCount"].Delta > 0 {
+					if err := sendReport(
+						cfg.ServerAddr,
+						cfg.SignatureKey,
+						cfg.CryptoKeyPath,
+						mCopy,
+						httpClient,
+					); err != nil {
+						logger.Error().Err(err).Msg("Error on sending metrics")
+					}
 				}
-			}()
+				return
+			case <-ticker.C:
+				s.Acquire()
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer s.Release()
+
+					mCopy := m.copyMetricsAndResetPollCount()
+					if err := sendReport(
+						cfg.ServerAddr,
+						cfg.SignatureKey,
+						cfg.CryptoKeyPath,
+						mCopy,
+						httpClient,
+					); err != nil {
+						logger.Error().Err(err).Msg("Error on sending metrics")
+
+						// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
+						// возвращается в структуру metrics
+						m.restorePollCount(*mCopy["PollCount"].Delta)
+					}
+				}()
+			}
 		}
 	}()
 	wg.Wait()
