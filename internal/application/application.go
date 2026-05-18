@@ -93,13 +93,50 @@ func applyMigrations(db *sqlx.DB) error {
 	return nil
 }
 
-// Run запускает основные подсистемы сервиса и ждет их завершения.
+// Run запускает основные подсистемы сервиса и блокируется, пока не отменен контекст или один из серверов не
+// остановится с ошибкой.
 func (app *Application) Run(ctx context.Context) error {
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error { return app.httpSrv.Run(ctx) })
-	eg.Go(func() error { return app.pprofSrv.Run(ctx) })
-	eg.Go(func() error { app.auditPublisher.Run(ctx); return nil })
-	return eg.Wait()
+	serverErrCh := app.runServers(ctx)
+	auditDoneCh := app.runAuditPublisher()
+
+	select {
+	case <-ctx.Done():
+		err := <-serverErrCh // блокируемся до завершения работы группы серверов
+		app.shutdownAuditPublisher(auditDoneCh)
+		return err
+	case err := <-serverErrCh:
+		app.shutdownAuditPublisher(auditDoneCh)
+		return err
+	}
+}
+
+func (app *Application) runServers(ctx context.Context) <-chan error {
+	serverErrCh := make(chan error, 1)
+	eg, groupCtx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		return app.httpSrv.Run(groupCtx)
+	})
+	eg.Go(func() error {
+		return app.pprofSrv.Run(groupCtx)
+	})
+	go func() {
+		serverErrCh <- eg.Wait()
+	}()
+	return serverErrCh
+}
+
+func (app *Application) runAuditPublisher() <-chan struct{} {
+	auditDoneCh := make(chan struct{})
+	go func() {
+		defer close(auditDoneCh)
+		app.auditPublisher.Run()
+	}()
+	return auditDoneCh
+}
+
+func (app *Application) shutdownAuditPublisher(auditDoneCh <-chan struct{}) {
+	app.auditPublisher.Shutdown()
+	<-auditDoneCh // ждем, пока паблишер завершит работу
 }
 
 // Close освобождает ресурсы сервиса.

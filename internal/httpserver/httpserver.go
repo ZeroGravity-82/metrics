@@ -15,6 +15,7 @@ import (
 
 const (
 	readHeaderTimeout = 5 * time.Second
+	shutdownTimeout   = 10 * time.Second
 )
 
 // HTTPServer - основной API-сервер сервиса метрик.
@@ -48,17 +49,38 @@ func NewHTTPServer(
 	}
 }
 
-// Run запускает HTTP-сервер и блокируется до ошибки.
-func (s *HTTPServer) Run(_ context.Context) error {
-	s.logger.Info().Str("address", s.addr).Msg("http server started")
+// Run запускает HTTP-сервер и блокируется, пока не отменен контекст или сервер не остановится с ошибкой.
+func (s *HTTPServer) Run(ctx context.Context) error {
 	srv := http.Server{
 		Addr:              s.addr,
 		Handler:           handler.MetricRouter(s.storage, s.auditPublisher, s.signatureKey, s.cryptoKeyPath, s.logger),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
-	err := srv.ListenAndServe()
-	if !errors.Is(err, http.ErrServerClosed) {
+
+	errCh := make(chan error, 1)
+	go func() {
+		s.logger.Info().Str("address", s.addr).Msg("starting http server")
+		errCh <- srv.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		err := srv.Shutdown(shutdownCtx)
+		if err == nil {
+			s.logger.Info().Msg("http server stopped with graceful shutdown")
+			return nil
+		}
+		s.logger.Error().Err(err).Msg("http server stopped with error")
+		return fmt.Errorf("http server stopped with error: %w", err)
+	case err := <-errCh:
+		if err == nil || errors.Is(err, http.ErrServerClosed) {
+			s.logger.Info().Msg("http server closed")
+			return nil
+		}
+		s.logger.Error().Err(err).Msg("http server failed with error")
 		return fmt.Errorf("http server error: %w", err)
 	}
-	return nil
 }
