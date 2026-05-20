@@ -19,7 +19,6 @@ func BenchmarkAgent_marshal_updatesBatch(b *testing.B) {
 		v := float64(i)
 		metrics = append(metrics, model.Metrics{ID: "m", MType: model.Gauge, Value: &v})
 	}
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -38,7 +37,6 @@ func BenchmarkAgent_compress_updatesBatch(b *testing.B) {
 	if err != nil {
 		b.Fatalf("marshal failed: %v", err)
 	}
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -54,7 +52,6 @@ func BenchmarkAgent_marshalAndCompress_updatesBatch(b *testing.B) {
 		metrics = append(metrics, model.Metrics{ID: "m", MType: model.Gauge, Value: &v})
 	}
 	var jsonBz []byte
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -66,7 +63,6 @@ func BenchmarkAgent_marshalAndCompress_updatesBatch(b *testing.B) {
 func BenchmarkAgent_copyMetricsAndResetPollCount(b *testing.B) {
 	// Setup
 	metrics := newMetrics()
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
