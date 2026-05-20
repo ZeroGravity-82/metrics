@@ -317,7 +317,7 @@ func sendMetrics(
 		SetHeader("Content-Encoding", "gzip").
 		SetBody(bodyBz)
 	if signatureKey != "" {
-		r.SetHeader("HashSHA256", fmt.Sprintf("%s", generateHexEncodedSignature(jsonBz, signatureKey)))
+		r.SetHeader("HashSHA256", generateHexEncodedSignature(jsonBz, signatureKey))
 	}
 	if cryptoKeyPath != "" {
 		r.SetHeader("X-Encrypted", xEncryptedHeader)
