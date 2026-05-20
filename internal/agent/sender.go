@@ -286,7 +286,7 @@ func sendMetrics(
 	metrics []model.Metrics,
 	httpClient *resty.Client,
 ) error {
-	const xEncryptedHeader = "aes-gcm+rsa-oaep-sha256"
+	const xEncryptedHeaderValue = "aes-gcm+rsa-oaep-sha256"
 
 	jsonBz, err := marshal(metrics)
 	if err != nil {
@@ -320,8 +320,8 @@ func sendMetrics(
 		r.SetHeader("HashSHA256", generateHexEncodedSignature(jsonBz, signatureKey))
 	}
 	if cryptoKeyPath != "" {
-		r.SetHeader("X-Encrypted", xEncryptedHeader)
-		r.SetHeader("X-Encrypted-Key", base64.StdEncoding.EncodeToString(encryptedKeyBz))
+		r.SetHeader(encryption.XEncryptedHeaderName, xEncryptedHeaderValue)
+		r.SetHeader(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString(encryptedKeyBz))
 	}
 	_, err = r.Post(urlPath)
 	if err != nil {

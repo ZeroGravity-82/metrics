@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"zerogravity-82/metrics/internal/encryption"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jmoiron/sqlx"
@@ -862,8 +863,8 @@ func TestMetricRouter_FailsFastWhenEncryptedHeaderWithoutServerKey(t *testing.T)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("X-Encrypted", "aes-gcm+rsa-oaep-sha256")
-	req.Header.Set("X-Encrypted-Key", base64.StdEncoding.EncodeToString([]byte("encrypted-key")))
+	req.Header.Set(encryption.XEncryptedHeaderName, "aes-gcm+rsa-oaep-sha256")
+	req.Header.Set(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString([]byte("encrypted-key")))
 
 	// Act
 	resp, err := ts.Client().Do(req)

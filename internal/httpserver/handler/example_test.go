@@ -246,8 +246,8 @@ func ExampleMetricRouter_updatesValuesJSON_encrypted() {
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/updates", bytes.NewReader(encryptedData))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("X-Encrypted", "aes-gcm+rsa-oaep-sha256")
-	req.Header.Set("X-Encrypted-Key", base64.StdEncoding.EncodeToString(encryptedKey))
+	req.Header.Set(encryption.XEncryptedHeaderName, "aes-gcm+rsa-oaep-sha256")
+	req.Header.Set(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString(encryptedKey))
 
 	resp, _ := ts.Client().Do(req)
 	_ = resp.Body.Close()

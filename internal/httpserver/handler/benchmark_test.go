@@ -215,8 +215,8 @@ func BenchmarkMetricRouter_UpdateRoute_WithEncryption(b *testing.B) {
 	for b.Loop() {
 		req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(encryptedData))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Encrypted", "aes-gcm+rsa-oaep-sha256")
-		req.Header.Set("X-Encrypted-Key", base64.StdEncoding.EncodeToString(encryptedKey))
+		req.Header.Set(encryption.XEncryptedHeaderName, "aes-gcm+rsa-oaep-sha256")
+		req.Header.Set(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString(encryptedKey))
 
 		w := newDiscardResponseWriter()
 		r.ServeHTTP(w, req)

@@ -21,6 +21,11 @@ import (
 	"os"
 )
 
+const (
+	XEncryptedHeaderName    = "X-Encrypted"
+	XEncryptedKeyHeaderName = "X-Encrypted-Key"
+)
+
 // Encrypt шифрует данные по гибридной схеме: данные - AES-256-GCM, ключ сессии - RSA-OAEP.
 // В encryptedData сохраняется nonce, за которым идет ciphertext вместе с GCM-тегом.
 func Encrypt(data []byte, publicKeyPath string) (encryptedData, encryptedKey []byte, err error) {

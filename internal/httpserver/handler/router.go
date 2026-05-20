@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"zerogravity-82/metrics/internal/encryption"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -171,14 +172,9 @@ func withGzip(logger zerolog.Logger) func(next http.Handler) http.Handler {
 }
 
 func withEncryption(cryptoKeyPath string) func(next http.Handler) http.Handler {
-	const (
-		xEncryptedHeaderName    = "X-Encrypted"
-		xEncryptedKeyHeaderName = "X-Encrypted-Key"
-	)
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			xEncryptedHeader := r.Header.Get(xEncryptedHeaderName)
+			xEncryptedHeader := r.Header.Get(encryption.XEncryptedHeaderName)
 			if xEncryptedHeader == "" {
 				next.ServeHTTP(w, r)
 				return
@@ -188,11 +184,11 @@ func withEncryption(cryptoKeyPath string) func(next http.Handler) http.Handler {
 				return
 			}
 
-			xEncryptedKeyHeader := r.Header.Get(xEncryptedKeyHeaderName)
+			xEncryptedKeyHeader := r.Header.Get(encryption.XEncryptedKeyHeaderName)
 			if xEncryptedKeyHeader == "" {
 				http.Error(
 					w,
-					fmt.Sprintf("header %s is not provided", xEncryptedKeyHeaderName),
+					fmt.Sprintf("header %s is not provided", encryption.XEncryptedKeyHeaderName),
 					http.StatusBadRequest,
 				)
 				return
@@ -201,7 +197,7 @@ func withEncryption(cryptoKeyPath string) func(next http.Handler) http.Handler {
 			if err != nil {
 				http.Error(
 					w,
-					fmt.Sprintf("unable to decode header %q: %s", xEncryptedKeyHeaderName, err.Error()),
+					fmt.Sprintf("unable to decode header %q: %s", encryption.XEncryptedKeyHeaderName, err.Error()),
 					http.StatusBadRequest,
 				)
 				return
