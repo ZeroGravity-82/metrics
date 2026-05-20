@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -97,16 +98,16 @@ func applyMigrations(db *sqlx.DB) error {
 // остановится с ошибкой.
 func (app *Application) Run(ctx context.Context) error {
 	serverErrCh := app.runServers(ctx)
-	auditDoneCh := app.runAuditPublisher()
+	auditErrCh := app.runAuditPublisher()
 
 	select {
 	case <-ctx.Done():
-		err := <-serverErrCh // блокируемся до завершения работы группы серверов
-		app.shutdownAuditPublisher(auditDoneCh)
-		return err
-	case err := <-serverErrCh:
-		app.shutdownAuditPublisher(auditDoneCh)
-		return err
+		serverErr := <-serverErrCh // блокируемся до завершения работы группы серверов
+		auditErr := app.shutdownAuditPublisher(auditErrCh)
+		return errors.Join(serverErr, auditErr)
+	case serverErr := <-serverErrCh:
+		auditErr := app.shutdownAuditPublisher(auditErrCh)
+		return errors.Join(serverErr, auditErr)
 	}
 }
 
@@ -125,18 +126,22 @@ func (app *Application) runServers(ctx context.Context) <-chan error {
 	return serverErrCh
 }
 
-func (app *Application) runAuditPublisher() <-chan struct{} {
-	auditDoneCh := make(chan struct{})
+func (app *Application) runAuditPublisher() <-chan error {
+	auditErrCh := make(chan error, 1)
 	go func() {
-		defer close(auditDoneCh)
-		app.auditPublisher.Run()
+		auditErrCh <- app.auditPublisher.Run()
 	}()
-	return auditDoneCh
+	return auditErrCh
 }
 
-func (app *Application) shutdownAuditPublisher(auditDoneCh <-chan struct{}) {
-	app.auditPublisher.Shutdown()
-	<-auditDoneCh // ждем, пока паблишер завершит работу
+func (app *Application) shutdownAuditPublisher(auditErrCh <-chan error) error {
+	const shutdownTimeout = 10 * time.Second
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	app.auditPublisher.Shutdown(shutdownCtx)
+	return <-auditErrCh
 }
 
 // Close освобождает ресурсы сервиса.
