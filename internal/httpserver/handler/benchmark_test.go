@@ -84,12 +84,15 @@ func BenchmarkSigningResponseWriter_CalculateSignature(b *testing.B) {
 	inner := newDiscardResponseWriter()
 	key := "secret"
 	logger := zerolog.Nop()
-	writer := newSigningResponseWriter(inner, key, logger)
 	data := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
-	sinkInt, sinkErr = writer.Write(data)
 
 	// Measure
 	for b.Loop() {
+		b.StopTimer()
+		writer := newSigningResponseWriter(inner, key, logger)
+		sinkInt, sinkErr = writer.Write(data)
+		b.StartTimer()
+
 		writer.WriteHeader(http.StatusOK)
 	}
 }
