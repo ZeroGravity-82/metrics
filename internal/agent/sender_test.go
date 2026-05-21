@@ -214,12 +214,52 @@ func TestSendReport(t *testing.T) {
 			httpClient := resty.New()
 
 			// Act
-			err := sendReport(server.URL, tt.signatureKey, "", sentMetrics.data, httpClient)
+			err := sendReport(context.Background(), server.URL, tt.signatureKey, "", sentMetrics.data, httpClient)
 			require.NoError(t, err)
 
 			// Assert
 			assert.Equal(t, len(sentMetrics.data), len(processedMetricIDs))
 		})
+	}
+}
+
+// TestSendReport_RespectsContextCancellation проверяет, что sendReport() прерывает HTTP-запрос и возвращает ошибку
+// контекста, если дедлайн/отмена наступили до получения ответа сервера.
+func TestSendReport_RespectsContextCancellation(t *testing.T) {
+	// Arrange
+	requestStarted := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sentMetrics := newMetrics()
+	sentMetrics.pollMetrics()
+	httpClient := resty.New()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	// Act
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sendReport(ctx, server.URL, "", "", sentMetrics.data, httpClient)
+	}()
+
+	// Assert
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("request did not reach test server")
+	}
+
+	select {
+	case err := <-errCh:
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(time.Second):
+		t.Fatal("sendReport did not stop after context cancellation")
 	}
 }
 
