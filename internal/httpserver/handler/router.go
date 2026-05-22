@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,7 +34,14 @@ import (
 //	GET  /ping
 //
 // Если key не пустой, включается middleware подписи запросов/ответов.
-func MetricRouter(s Storage, a AuditPublisher, signatureKey, cryptoKeyPath string, logger zerolog.Logger) chi.Router {
+func MetricRouter(
+	s Storage,
+	a AuditPublisher,
+	signatureKey,
+	cryptoKeyPath,
+	trustedSubnet string,
+	logger zerolog.Logger,
+) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
@@ -45,14 +53,15 @@ func MetricRouter(s Storage, a AuditPublisher, signatureKey, cryptoKeyPath strin
 	)
 	h := New(s, a, logger)
 
+	trustedSubnetMiddleware := withTrustedSubnet(trustedSubnet, logger)
 	textPlainContentType := middleware.AllowContentType("text/plain")
-	r.With(textPlainContentType).Post("/update/{mType}/{mName}/{mValue}", h.updateMetric)
+	r.With(textPlainContentType, trustedSubnetMiddleware).Post("/update/{mType}/{mName}/{mValue}", h.updateMetric)
 	r.With(textPlainContentType).Get("/value/{mType}/{mName}", h.getMetric)
 	r.With(textPlainContentType).Get("/", h.getMetricList)
 
 	applicationJSONContentType := middleware.AllowContentType("application/json")
-	r.With(applicationJSONContentType).Post("/update", h.update)
-	r.With(applicationJSONContentType).Post("/updates", h.updates)
+	r.With(applicationJSONContentType, trustedSubnetMiddleware).Post("/update", h.update)
+	r.With(applicationJSONContentType, trustedSubnetMiddleware).Post("/updates", h.updates)
 	r.With(applicationJSONContentType).Post("/value", h.get)
 
 	r.Get("/ping", h.ping)
@@ -209,6 +218,50 @@ func withEncryption(cryptoKeyPath string) func(next http.Handler) http.Handler {
 			er := newEncryptRequestReader(r.Body, xEncryptedKeyBz, cryptoKeyPath)
 			defer er.Close()
 			r.Body = er
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func withTrustedSubnet(trustedSubnetStr string, logger zerolog.Logger) func(next http.Handler) http.Handler {
+	const realIPHeaderName = "X-Real-IP"
+	var (
+		trustedSubnet *net.IPNet
+		err           error
+	)
+	if trustedSubnetStr != "" {
+		_, trustedSubnet, err = net.ParseCIDR(trustedSubnetStr)
+		if err != nil {
+			logger.Error().Err(err).Str("subnet", trustedSubnetStr).Msg("invalid trusted subnet")
+		}
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if trustedSubnetStr == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if trustedSubnet == nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			realIPHeader := r.Header.Get(realIPHeaderName)
+			if realIPHeader == "" {
+				http.Error(w, fmt.Sprintf("header %s is required", realIPHeaderName), http.StatusForbidden)
+				return
+			}
+
+			ip := net.ParseIP(realIPHeader)
+			if ip == nil {
+				http.Error(w, fmt.Sprintf("invalid header %s format", realIPHeaderName), http.StatusBadRequest)
+				return
+			}
+			if !trustedSubnet.Contains(ip) {
+				http.Error(w, "agent IP is not in the trusted subnet", http.StatusForbidden)
+				return
+			}
 			next.ServeHTTP(w, r)
 		})
 	}

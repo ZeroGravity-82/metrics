@@ -88,8 +88,9 @@ func ExampleMetricRouter_updateValueText() {
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/update/gauge/RandomValue/123.45", http.NoBody)
@@ -117,8 +118,9 @@ func ExampleMetricRouter_getValueText() {
 	)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/value/counter/PollCount", http.NoBody)
@@ -139,8 +141,9 @@ func ExampleMetricRouter_updateValueJSON() {
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
 	defer ts.Close()
 
 	payload := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: func() *int64 { v := int64(5); return &v }()}
@@ -165,8 +168,9 @@ func ExampleMetricRouter_updatesValuesJSON() {
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
 	defer ts.Close()
 
 	payload := []model.Metrics{
@@ -194,8 +198,9 @@ func ExampleMetricRouter_updatesValuesJSON_signed() {
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := "secret"
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
 	defer ts.Close()
 
 	payload := []model.Metrics{
@@ -230,10 +235,11 @@ func ExampleMetricRouter_updatesValuesJSON_encrypted() {
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	privateKeyPath, publicKeyPath, _ := writeExampleRSAKeyPair()
+	trustedSubnet := ""
 	defer os.Remove(privateKeyPath)
 	defer os.Remove(publicKeyPath)
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, privateKeyPath, logger))
+	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, privateKeyPath, trustedSubnet, logger))
 	defer ts.Close()
 
 	payload := []model.Metrics{
@@ -269,8 +275,9 @@ func ExampleMetricRouter_getValueJSON() {
 	)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
 	defer ts.Close()
 
 	payload := model.Metrics{ID: "RandomValue", MType: model.Gauge}
@@ -296,8 +303,9 @@ func ExampleMetricRouter_ping() {
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/ping", http.NoBody)

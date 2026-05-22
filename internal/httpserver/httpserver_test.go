@@ -23,8 +23,17 @@ func TestHTTPServer_Run_AddressInUse(t *testing.T) {
 	publisher := audit.NewAsyncPublisher(logger)
 	signatureKey := "secret"
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	srv := NewHTTPServer(listener.Addr().String(), memStorage, publisher, signatureKey, cryptoKeyPath, logger)
+	srv := NewHTTPServer(
+		listener.Addr().String(),
+		memStorage,
+		publisher,
+		signatureKey,
+		cryptoKeyPath,
+		trustedSubnet,
+		logger,
+	)
 	ctx := context.Background()
 
 	// Act

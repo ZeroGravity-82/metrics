@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/url"
 	"runtime"
 	"strings"
@@ -323,6 +324,11 @@ func sendMetrics(
 		r.SetHeader("X-Encrypted", xEncryptedHeader)
 		r.SetHeader("X-Encrypted-Key", base64.StdEncoding.EncodeToString(encryptedKeyBz))
 	}
+	ip, err := outboundIPFor(serverAddr)
+	if err != nil {
+		return fmt.Errorf("failed to determine local IP address: %w", err)
+	}
+	r.SetHeader("X-Real-IP", ip)
 	_, err = r.Post(urlPath)
 	if err != nil {
 		return fmt.Errorf("failed to send the request: %w", err)
@@ -375,4 +381,23 @@ func generateHexEncodedSignature(data []byte, key string) string {
 	h.Write(data)
 	signature := hex.EncodeToString(h.Sum(nil))
 	return signature
+}
+
+func outboundIPFor(target string) (string, error) {
+	u, err := url.Parse(target)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse URL: %w", err)
+	}
+	conn, err := net.Dial("udp", u.Hostname()+":"+u.Port())
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return "", fmt.Errorf("unexpected local address type %T", conn.LocalAddr())
+	}
+
+	return localAddr.IP.String(), nil
 }

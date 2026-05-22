@@ -37,6 +37,8 @@ func TestCanGetServerConfig_Default(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("PPROF_ADDR")
 	require.NoError(t, err)
+	err = os.Unsetenv("TRUSTED_SUBNET")
+	require.NoError(t, err)
 	err = os.Unsetenv("CONFIG")
 	require.NoError(t, err)
 
@@ -55,6 +57,7 @@ func TestCanGetServerConfig_Default(t *testing.T) {
 	assert.Equal(t, "", cfg.AuditURL)
 	assert.Equal(t, "", cfg.CryptoKeyPath)
 	assert.Equal(t, "", cfg.PprofAddr)
+	assert.Equal(t, "", cfg.TrustedSubnet)
 }
 
 // TestCanGetServerConfig_JSON_FromFlag проверяет парсинг файла конфигурации, имя которого было передано через флаг.
@@ -73,7 +76,8 @@ func TestCanGetServerConfig_JSON_FromFlag(t *testing.T) {
   "audit_file": "audit.json",
   "audit_url": "https://audit.site/hook",
   "crypto_key":"server-private.pem",
-  "pprof_address": "localhost:6060"
+  "pprof_address": "localhost:6060",
+  "trusted_subnet": "192.168.0.1/24"
 }
 `), 0o600)
 	require.NoError(t, err)
@@ -99,6 +103,8 @@ func TestCanGetServerConfig_JSON_FromFlag(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("PPROF_ADDR")
 	require.NoError(t, err)
+	err = os.Unsetenv("TRUSTED_SUBNET")
+	require.NoError(t, err)
 	err = os.Unsetenv("CONFIG")
 	require.NoError(t, err)
 
@@ -117,6 +123,7 @@ func TestCanGetServerConfig_JSON_FromFlag(t *testing.T) {
 	assert.Equal(t, "https://audit.site/hook", cfg.AuditURL)
 	assert.Equal(t, "server-private.pem", cfg.CryptoKeyPath)
 	assert.Equal(t, "localhost:6060", cfg.PprofAddr)
+	assert.Equal(t, "192.168.0.1/24", cfg.TrustedSubnet)
 }
 
 // TestCanGetServerConfig_JSON_FromEnv проверяет парсинг файла конфигурации, имя которого было передано через переменную
@@ -136,7 +143,8 @@ func TestCanGetServerConfig_JSON_FromEnv(t *testing.T) {
   "audit_file": "audit.json",
   "audit_url": "https://audit.site/hook",
   "crypto_key":"server-private.pem",
-  "pprof_address": "localhost:6060"
+  "pprof_address": "localhost:6060",
+  "trusted_subnet": "192.168.0.1/24"
 }
 `), 0o600)
 	require.NoError(t, err)
@@ -161,6 +169,8 @@ func TestCanGetServerConfig_JSON_FromEnv(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("PPROF_ADDR")
 	require.NoError(t, err)
+	err = os.Unsetenv("TRUSTED_SUBNET")
+	require.NoError(t, err)
 	err = os.Setenv("CONFIG", configPath)
 	require.NoError(t, err)
 
@@ -179,6 +189,7 @@ func TestCanGetServerConfig_JSON_FromEnv(t *testing.T) {
 	assert.Equal(t, "https://audit.site/hook", cfg.AuditURL)
 	assert.Equal(t, "server-private.pem", cfg.CryptoKeyPath)
 	assert.Equal(t, "localhost:6060", cfg.PprofAddr)
+	assert.Equal(t, "192.168.0.1/24", cfg.TrustedSubnet)
 }
 
 // TestCanGetServerConfig_Flag проверяет парсинг параметров командной строки сервера.
@@ -197,6 +208,7 @@ func TestCanGetServerConfig_Flag(t *testing.T) {
 		"--audit-url=https://audit.com",
 		"--crypto-key=server-private.pem",
 		"--pprof=localhost:6060",
+		"-t=192.168.0.1/24",
 	}
 	err := os.Unsetenv("ADDRESS")
 	require.NoError(t, err)
@@ -218,6 +230,8 @@ func TestCanGetServerConfig_Flag(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("PPROF_ADDR")
 	require.NoError(t, err)
+	err = os.Unsetenv("TRUSTED_SUBNET")
+	require.NoError(t, err)
 	err = os.Unsetenv("CONFIG")
 	require.NoError(t, err)
 
@@ -236,6 +250,7 @@ func TestCanGetServerConfig_Flag(t *testing.T) {
 	assert.Equal(t, "https://audit.com", cfg.AuditURL)
 	assert.Equal(t, "server-private.pem", cfg.CryptoKeyPath)
 	assert.Equal(t, "localhost:6060", cfg.PprofAddr)
+	assert.Equal(t, "192.168.0.1/24", cfg.TrustedSubnet)
 }
 
 // TestCanGetServerConfig_Env проверяет парсинг переменных окружения сервера.
@@ -263,6 +278,8 @@ func TestCanGetServerConfig_Env(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("PPROF_ADDR", "localhost:6060")
 	require.NoError(t, err)
+	err = os.Setenv("TRUSTED_SUBNET", "192.168.0.1/24")
+	require.NoError(t, err)
 	err = os.Unsetenv("CONFIG")
 	require.NoError(t, err)
 
@@ -281,6 +298,7 @@ func TestCanGetServerConfig_Env(t *testing.T) {
 	assert.Equal(t, "https://audit.com", cfg.AuditURL)
 	assert.Equal(t, "server-env-private.pem", cfg.CryptoKeyPath)
 	assert.Equal(t, "localhost:6060", cfg.PprofAddr)
+	assert.Equal(t, "192.168.0.1/24", cfg.TrustedSubnet)
 }
 
 // TestCanGetServerConfig_FlagOverJSONPrecedence проверяет приоритет параметров командной строки сервера над файлом
@@ -300,7 +318,8 @@ func TestCanGetServerConfig_FlagOverJSONPrecedence(t *testing.T) {
   "audit_file": "auditA.json",
   "audit_url": "https://audit.site/hook",
   "crypto_key":"server-private.pem",
-  "pprof_address": "localhost:6060"
+  "pprof_address": "localhost:6060",
+  "trusted_subnet": "192.168.0.1/24"
 }
 `), 0o600)
 	require.NoError(t, err)
@@ -317,6 +336,7 @@ func TestCanGetServerConfig_FlagOverJSONPrecedence(t *testing.T) {
 		"--audit-url=https://audit.com",
 		"--crypto-key=server-flag-private.pem",
 		"--pprof=localhost:6061",
+		"-t=192.168.0.1/16",
 		"-c=" + configPath,
 	}
 	err = os.Unsetenv("ADDRESS")
@@ -339,6 +359,8 @@ func TestCanGetServerConfig_FlagOverJSONPrecedence(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Unsetenv("PPROF_ADDR")
 	require.NoError(t, err)
+	err = os.Unsetenv("TRUSTED_SUBNET")
+	require.NoError(t, err)
 	err = os.Unsetenv("CONFIG")
 	require.NoError(t, err)
 
@@ -357,6 +379,7 @@ func TestCanGetServerConfig_FlagOverJSONPrecedence(t *testing.T) {
 	assert.Equal(t, "https://audit.com", cfg.AuditURL)
 	assert.Equal(t, "server-flag-private.pem", cfg.CryptoKeyPath)
 	assert.Equal(t, "localhost:6061", cfg.PprofAddr)
+	assert.Equal(t, "192.168.0.1/16", cfg.TrustedSubnet)
 }
 
 // TestCanGetServerConfig_EnvOverFlagPrecedence проверяет приоритет переменных окружения над параметрами командной
@@ -375,6 +398,7 @@ func TestCanGetServerConfig_EnvOverFlagPrecedence(t *testing.T) {
 		"--audit-file=audit.log",
 		"--audit-url=https://audit.com",
 		"--crypto-key=server-flag-private.pem",
+		"-t=192.168.0.1/16",
 		"--pprof=localhost:6060",
 	}
 	err := os.Setenv("ADDRESS", "localhost:8085")
@@ -397,6 +421,8 @@ func TestCanGetServerConfig_EnvOverFlagPrecedence(t *testing.T) {
 	require.NoError(t, err)
 	err = os.Setenv("PPROF_ADDR", "localhost:6061")
 	require.NoError(t, err)
+	err = os.Setenv("TRUSTED_SUBNET", "192.168.0.1/24")
+	require.NoError(t, err)
 	err = os.Unsetenv("CONFIG")
 	require.NoError(t, err)
 
@@ -415,4 +441,5 @@ func TestCanGetServerConfig_EnvOverFlagPrecedence(t *testing.T) {
 	assert.Equal(t, "https://audit-2.com", cfg.AuditURL)
 	assert.Equal(t, "server-env-priority.pem", cfg.CryptoKeyPath)
 	assert.Equal(t, "localhost:6061", cfg.PprofAddr)
+	assert.Equal(t, "192.168.0.1/24", cfg.TrustedSubnet)
 }

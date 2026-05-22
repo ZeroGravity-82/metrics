@@ -27,6 +27,7 @@ type HTTPServer struct {
 	auditPublisher *audit.AsyncPublisher
 	signatureKey   string
 	cryptoKeyPath  string
+	trustedSubnet  string
 	logger         zerolog.Logger
 }
 
@@ -37,6 +38,7 @@ func NewHTTPServer(
 	auditPublisher *audit.AsyncPublisher,
 	signatureKey string,
 	cryptoKeyPath string,
+	trustedSubnet string,
 	logger zerolog.Logger,
 ) *HTTPServer {
 	return &HTTPServer{
@@ -45,6 +47,7 @@ func NewHTTPServer(
 		auditPublisher: auditPublisher,
 		signatureKey:   signatureKey,
 		cryptoKeyPath:  cryptoKeyPath,
+		trustedSubnet:  trustedSubnet,
 		logger:         logger,
 	}
 }
@@ -52,8 +55,15 @@ func NewHTTPServer(
 // Run запускает HTTP-сервер и блокируется, пока не отменен контекст или сервер не остановится с ошибкой.
 func (s *HTTPServer) Run(ctx context.Context) error {
 	srv := http.Server{
-		Addr:              s.addr,
-		Handler:           handler.MetricRouter(s.storage, s.auditPublisher, s.signatureKey, s.cryptoKeyPath, s.logger),
+		Addr: s.addr,
+		Handler: handler.MetricRouter(
+			s.storage,
+			s.auditPublisher,
+			s.signatureKey,
+			s.cryptoKeyPath,
+			s.trustedSubnet,
+			s.logger,
+		),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 

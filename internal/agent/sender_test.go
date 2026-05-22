@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -203,6 +204,8 @@ func TestSendReport(t *testing.T) {
 				} else {
 					assert.Empty(t, r.Header.Get("HashSHA256"))
 				}
+				assert.NotEmpty(t, r.Header.Get("X-Real-IP"))
+				assert.NotNil(t, net.ParseIP(r.Header.Get("X-Real-IP")))
 
 				for _, m := range receivedMetrics {
 					assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
@@ -227,6 +230,34 @@ func generateSignature(data []byte, key string) []byte {
 	h := hmac.New(sha256.New, []byte(key))
 	h.Write(data)
 	return h.Sum(nil)
+}
+
+// TestOutboundIPFor проверяет, что outboundIPFor() определяет локальный IP.
+func Test_outboundIPFor(t *testing.T) {
+	// Arrange
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer server.Close()
+
+	// Act
+	ip, err := outboundIPFor(server.URL)
+
+	// Assert
+	require.NoError(t, err)
+	assert.NotEmpty(t, ip)
+	assert.NotNil(t, net.ParseIP(ip))
+}
+
+// TestOutboundIPFor_InvalidURL проверяет, что outboundIPFor() возвращает ошибку для некорректного URL.
+func Test_outboundIPFor_InvalidURL(t *testing.T) {
+	// Arrange
+	target := "://bad-url"
+
+	// Act
+	ip, err := outboundIPFor(target)
+
+	// Assert
+	require.Error(t, err)
+	assert.Empty(t, ip)
 }
 
 // TestAddDefaultSchema проверяет, что addDefaultURLSchema() подставляет корректную схему по умолчанию.

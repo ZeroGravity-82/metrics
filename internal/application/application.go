@@ -65,7 +65,15 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit publisher error: %w", err)
 	}
-	httpSrv := httpserver.NewHTTPServer(cfg.ServerAddr, storage, publisher, cfg.SignatureKey, cfg.CryptoKeyPath, logger)
+	httpSrv := httpserver.NewHTTPServer(
+		cfg.ServerAddr,
+		storage,
+		publisher,
+		cfg.SignatureKey,
+		cfg.CryptoKeyPath,
+		cfg.TrustedSubnet,
+		logger,
+	)
 	pprofSrv := httpserver.NewPprofServer(cfg.PprofAddr, logger)
 
 	return &Application{

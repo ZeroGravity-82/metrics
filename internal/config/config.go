@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -66,6 +67,8 @@ type AgentConfig struct {
 // AuditURL - URL для отправки сообщений событий аудита по HTTP (опционально).
 //
 // PprofAddr - адрес pprof-сервера в формате host:port (опционально).
+//
+// TrustedSubnet - CIDR доверенной подсети (опционально).
 type ServerConfig struct {
 	ServerAddr      string         `json:"address"`
 	StoreInterval   configDuration `json:"store_interval"`
@@ -77,6 +80,7 @@ type ServerConfig struct {
 	AuditFile       string         `json:"audit_file"`
 	AuditURL        string         `json:"audit_url"`
 	PprofAddr       string         `json:"pprof_address"`
+	TrustedSubnet   string         `json:"trusted_subnet"`
 }
 
 // GetServerConfig парсит файл конфигурации/флаги/переменные окружения и возвращает ServerConfig.
@@ -98,6 +102,7 @@ func GetServerConfig() (ServerConfig, error) {
 	auditFileFlag := pflag.StringP("audit-file", "", "", "путь к файлу с логами аудита")
 	auditURLFlag := pflag.StringP("audit-url", "", "", "полный URL для отправки логов аудита")
 	pprofAddrFlag := pflag.StringP("pprof", "", "", "адрес pprof-сервера")
+	trustedSubnetFlag := pflag.StringP("trusted-subnet", "t", "", "CIDR доверенной подсети")
 	pflag.Parse()
 
 	cfg := ServerConfig{}
@@ -127,6 +132,10 @@ func GetServerConfig() (ServerConfig, error) {
 	auditFile := getAuditFile(*auditFileFlag, cfgJSON.AuditFile)
 	auditURL := getAuditURL(*auditURLFlag, cfgJSON.AuditURL)
 	pprofAddr := getPprofAddr(*pprofAddrFlag, cfgJSON.PprofAddr)
+	trustedSubnet, err := getTrustedSubnet(*trustedSubnetFlag, cfgJSON.TrustedSubnet)
+	if err != nil {
+		return cfg, err
+	}
 
 	cfg.ServerAddr = serverAddr
 	cfg.StoreInterval = storeInterval
@@ -138,6 +147,7 @@ func GetServerConfig() (ServerConfig, error) {
 	cfg.AuditFile = auditFile
 	cfg.AuditURL = auditURL
 	cfg.PprofAddr = pprofAddr
+	cfg.TrustedSubnet = trustedSubnet
 	return cfg, nil
 }
 
@@ -235,8 +245,11 @@ func getDatabaseDSN(databaseDSNFlag, databaseDSNCfgJSON string) (string, error) 
 }
 
 func getServerAddr(serverAddrFlag, serverAddrCfgJSON string) (string, error) {
-	serverAddrEnv, ok := os.LookupEnv("ADDRESS")
+	serverAddrEnvStr, ok := os.LookupEnv("ADDRESS")
 	if !ok && serverAddrFlag != "" {
+		if err := validateServerAddr(serverAddrFlag); err != nil {
+			return "", err
+		}
 		return serverAddrFlag, nil
 	}
 	if !ok && serverAddrCfgJSON != "" {
@@ -248,10 +261,10 @@ func getServerAddr(serverAddrFlag, serverAddrCfgJSON string) (string, error) {
 	if !ok {
 		return defaultServerAddr, nil
 	}
-	if err := validateServerAddr(serverAddrEnv); err != nil {
+	if err := validateServerAddr(serverAddrEnvStr); err != nil {
 		return "", err
 	}
-	return serverAddrEnv, nil
+	return serverAddrEnvStr, nil
 }
 
 func serverAddrUsage() string {
@@ -271,7 +284,7 @@ func serverAddrFlagParser(serverAddr *string) func(string) error {
 func validateServerAddr(v string) error {
 	hp := strings.Split(v, ":")
 	if len(hp) != 2 {
-		return errors.New("адрес сервера должен быть в формате host:port (без указания схемы)")
+		return errors.New("server address must be in the format host:post (without specifying a scheme)")
 	}
 	return nil
 }
@@ -432,6 +445,40 @@ func getPprofAddr(pprofAddrFlag, pprofAddrCfgJSON string) string {
 		return pprofAddrFlag
 	}
 	return pprofAddrCfgJSON
+}
+
+func getTrustedSubnet(trustedSubnetFlag, trustedSubnetCfgJSON string) (string, error) {
+	trustedSubnetEnvStr, ok := os.LookupEnv("TRUSTED_SUBNET")
+	if !ok && trustedSubnetFlag != "" {
+		if err := validateTrustedSubnet(trustedSubnetFlag); err != nil {
+			return "", err
+		}
+		return trustedSubnetFlag, nil
+	}
+	if !ok && trustedSubnetCfgJSON != "" {
+		if err := validateTrustedSubnet(trustedSubnetCfgJSON); err != nil {
+			return "", err
+		}
+		return trustedSubnetCfgJSON, nil
+	}
+	if !ok {
+		return "", nil
+	}
+	if trustedSubnetEnvStr == "" {
+		return "", nil
+	}
+	if err := validateTrustedSubnet(trustedSubnetEnvStr); err != nil {
+		return "", err
+	}
+	return trustedSubnetEnvStr, nil
+}
+
+func validateTrustedSubnet(v string) error {
+	_, _, err := net.ParseCIDR(v)
+	if err != nil {
+		return fmt.Errorf("trusted subnet must be in the format CIDR: %w", err)
+	}
+	return nil
 }
 
 func getRateLimit(rateLimitFlag int, rateLimitFlagChanged bool, rateLimitCfgJSON int) (int, error) {
