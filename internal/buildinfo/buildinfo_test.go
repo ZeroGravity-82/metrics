@@ -47,7 +47,7 @@ func TestPrint(t *testing.T) {
 
 // captureStdout временно перенаправляет stdout в pipe и возвращает весь записанный вывод.
 func captureStdout(t *testing.T, fn func()) string {
-	t.Helper() // нужен, чтобы место ошибки require.NoError отображалось в TestPrint, а не здесь
+	t.Helper() // нужен, чтобы место ошибки require.NoError отображалось в тестовых функциях, а не в этом хелпере.
 
 	// Arrange
 	originalStdout := os.Stdout

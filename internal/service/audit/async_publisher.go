@@ -27,19 +27,23 @@ type Observer interface {
 //
 // При переполнении внутренней очереди события отбрасываются.
 type AsyncPublisher struct {
-	mu        sync.Mutex
-	observers []Observer
-	queue     chan model.AuditLog
-	logger    zerolog.Logger
-	semaCh    chan struct{}
+	mu            sync.Mutex
+	observers     []Observer
+	queue         chan model.AuditLog
+	logger        zerolog.Logger
+	semaCh        chan struct{}
+	notifyWG      sync.WaitGroup
+	closing       bool
+	shutdownCtxCh chan context.Context
 }
 
 // NewAsyncPublisher создает AsyncPublisher с заданными наблюдателями.
 func NewAsyncPublisher(logger zerolog.Logger, observers ...Observer) *AsyncPublisher {
 	p := &AsyncPublisher{
-		queue:  make(chan model.AuditLog, defaultQueueSize),
-		logger: logger,
-		semaCh: make(chan struct{}, maxConcurrentNotify),
+		queue:         make(chan model.AuditLog, defaultQueueSize),
+		logger:        logger,
+		semaCh:        make(chan struct{}, maxConcurrentNotify),
+		shutdownCtxCh: make(chan context.Context),
 	}
 	p.Register(observers...)
 	return p
@@ -108,9 +112,9 @@ func (a *AsyncPublisher) Deregister(observer Observer) error {
 // PublishLog публикует событие аудита для набора метрик.
 func (a *AsyncPublisher) PublishLog(_ context.Context, now time.Time, ip string, metrics ...model.Metrics) {
 	a.mu.Lock()
-	hasObservers := len(a.observers) > 0
-	a.mu.Unlock()
-	if !hasObservers {
+	defer a.mu.Unlock()
+
+	if a.closing || len(a.observers) == 0 {
 		return
 	}
 
@@ -148,32 +152,77 @@ func convertMetricsToAuditLog(now time.Time, ip string, metrics []model.Metrics)
 	return log
 }
 
-// Run запускает фоновый воркер, отвечающий за уведомление заданных наблюдателей, и завершает его при отмене контекста.
-func (a *AsyncPublisher) Run(ctx context.Context) {
+// Run запускает фоновый воркер, отвечающий за уведомление заданных наблюдателей.
+//
+// Штатная остановка выполняется только отдельным вызовом Shutdown после завершения HTTP-серверов.
+func (a *AsyncPublisher) Run() error {
+	ctx := context.Background()
 	for {
 		select {
-		case <-ctx.Done():
-			return
+		case shutdownCtx := <-a.shutdownCtxCh:
+			if err := a.drainQueue(shutdownCtx); err != nil {
+				return err
+			}
+			if err := a.waitForObservers(shutdownCtx); err != nil {
+				return err
+			}
+			return nil
 		case log := <-a.queue:
-			a.notify(ctx, log)
+			_ = a.notify(ctx, log)
 		}
 	}
 }
 
-func (a *AsyncPublisher) notify(ctx context.Context, log model.AuditLog) {
+func (a *AsyncPublisher) drainQueue(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case log := <-a.queue:
+			if err := a.notify(ctx, log); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+func (a *AsyncPublisher) waitForObservers(ctx context.Context) error {
+	doneCh := make(chan struct{})
+	go func() {
+		a.notifyWG.Wait()
+		close(doneCh)
+	}()
+
+	select {
+	case <-doneCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (a *AsyncPublisher) notify(ctx context.Context, log model.AuditLog) error {
 	a.mu.Lock()
 	observers := make([]Observer, len(a.observers))
 	copy(observers, a.observers)
 	a.mu.Unlock()
 
 	for _, o := range observers {
-		a.semaCh <- struct{}{}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case a.semaCh <- struct{}{}:
+		}
+		a.notifyWG.Add(1)
 		go func(o Observer) {
+			defer a.notifyWG.Done()
 			defer func() {
 				<-a.semaCh
 			}()
 			defer func() {
-				// Паника одного наблюдателя не должно влиять на остальных наблюдателей.
+				// Паника одного наблюдателя не должна влиять на остальных наблюдателей.
 				if r := recover(); r != nil {
 					a.logger.Error().Interface("panic", r).Msg("audit observer panicked")
 				}
@@ -183,6 +232,7 @@ func (a *AsyncPublisher) notify(ctx context.Context, log model.AuditLog) {
 			}
 		}(o)
 	}
+	return nil
 }
 
 func (a *AsyncPublisher) Close() error {
@@ -196,4 +246,16 @@ func (a *AsyncPublisher) Close() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (a *AsyncPublisher) Shutdown(ctx context.Context) {
+	a.mu.Lock()
+	if a.closing {
+		a.mu.Unlock()
+		return
+	}
+	a.closing = true
+	a.mu.Unlock()
+
+	a.shutdownCtxCh <- ctx
 }

@@ -3,12 +3,15 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/spf13/pflag"
 )
 
 const (
@@ -22,154 +25,225 @@ const (
 
 // AgentConfig описывает конфигурацию агента.
 //
-// Значения берутся из флагов и переменных окружения в GetAgentConfig.
+// ServerAddr - адрес сервера метрик в формате host:port.
+//
+// ReportInterval - периодичность отправки метрик на сервер.
+//
+// PollInterval - периодичность опроса runtime-метрик.
+//
+// SignatureKey - ключ для подписи запросов (опционально).
+//
+// CryptoKeyPath - путь к публичному ключу для шифрования данных (опционально).
+//
+// RateLimit - ограничение на число одновременно исходящих запросов агента.
 type AgentConfig struct {
-	// ServerAddr — адрес сервера метрик в формате host:port.
-	ServerAddr string
-	// ReportInterval — периодичность отправки метрик на сервер (в секундах).
-	ReportInterval int
-	// PollInterval — периодичность опроса runtime-метрик (в секундах).
-	PollInterval int
-	// Key — ключ для подписи запросов (опционально).
-	Key string
-	// RateLimit — ограничение на число одновременно исходящих запросов агента.
-	RateLimit int
+	ServerAddr     string         `json:"address"`
+	ReportInterval configDuration `json:"report_interval"`
+	PollInterval   configDuration `json:"poll_interval"`
+	SignatureKey   string         `json:"signature_key"`
+	CryptoKeyPath  string         `json:"crypto_key"`
+	RateLimit      int            `json:"rate_limit"`
 }
 
 // ServerConfig описывает конфигурацию сервера метрик.
 //
-// Значения берутся из флагов и переменных окружения в GetServerConfig.
+// ServerAddr - адрес HTTP-сервера в формате host:port.
+//
+// StoreInterval - периодичность сохранения метрик на диск.
+//
+// FileStoragePath - путь к файлу для хранения метрик (опционально).
+//
+// Restore - признак необходимости восстановления метрик из файла при старте.
+//
+// DatabaseDSN - строка подключения к PostgreSQL (опционально).
+//
+// SignatureKey - ключ для подписи запросов (опционально).
+//
+// CryptoKeyPath - путь к приватному ключу для дешифрования данных (опционально).
+//
+// AuditFile - путь к файлу для записи сообщений событий аудита (опционально).
+//
+// AuditURL - URL для отправки сообщений событий аудита по HTTP (опционально).
+//
+// PprofAddr - адрес pprof-сервера в формате host:port (опционально).
 type ServerConfig struct {
-	// ServerAddr — адрес HTTP-сервера в формате host:port.
-	ServerAddr string
-	// StoreInterval — периодичность сохранения метрик на диск (в секундах).
-	StoreInterval int
-	// FileStoragePath — путь к файлу для хранения метрик (опционально).
-	FileStoragePath string
-	// Restore — признак необходимости восстановления метрик из файла при старте.
-	Restore bool
-	// DatabaseDSN — строка подключения к PostgreSQL (опционально).
-	DatabaseDSN string
-	// Key — ключ для подписи запросов (опционально).
-	Key string
-	// AuditFile — путь к файлу для записи сообщений событий аудита (опционально).
-	AuditFile string
-	// AuditURL — URL для отправки сообщений событий аудита по HTTP (опционально).
-	AuditURL string
-	// PprofAddr — адрес pprof-сервера в формате host:port (опционально).
-	PprofAddr string
+	ServerAddr      string         `json:"address"`
+	StoreInterval   configDuration `json:"store_interval"`
+	FileStoragePath string         `json:"store_file"`
+	Restore         bool           `json:"restore"`
+	DatabaseDSN     string         `json:"database_dsn"`
+	SignatureKey    string         `json:"signature_key"`
+	CryptoKeyPath   string         `json:"crypto_key"`
+	AuditFile       string         `json:"audit_file"`
+	AuditURL        string         `json:"audit_url"`
+	PprofAddr       string         `json:"pprof_address"`
 }
 
-// GetServerConfig парсит флаги/переменные окружения и возвращает ServerConfig.
+// GetServerConfig парсит файл конфигурации/флаги/переменные окружения и возвращает ServerConfig.
 func GetServerConfig() (ServerConfig, error) {
+	const (
+		storeIntervalFlagName = "store-interval"
+		restoreFlagName       = "restore"
+	)
+
+	configFileNameFlag := pflag.StringP("config", "c", "", "путь к файлу конфигурации")
 	var serverAddrFlag string
-	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
-	storeIntervalFlag := flag.Int("i", defaultStoreInterval, "интервал сохранения метрик на диск")
-	fileStoragePathFlag := flag.String("f", "", "путь до файла с метриками")
-	restoreFlag := flag.Bool("r", defaultRestore, "восстанавливать метрики из файла при старте")
-	databaseDSNFlag := flag.String("d", "", "строка подключения к БД")
-	keyFlag := flag.String("k", "", "ключ для подписи запросов")
-	auditFileFlag := flag.String("audit-file", "", "путь к файлу с логами аудита")
-	auditURLFlag := flag.String("audit-url", "", "полный URL для отправки логов аудита")
-	pprofAddrFlag := flag.String("pprof", "", "адрес pprof-сервера")
-	flag.Parse()
+	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	storeIntervalFlag := pflag.IntP(storeIntervalFlagName, "i", defaultStoreInterval, "интервал сохранения метрик на диск (в секундах)")
+	fileStoragePathFlag := pflag.StringP("file-storage-path", "f", "", "путь до файла с метриками")
+	restoreFlag := pflag.BoolP(restoreFlagName, "r", defaultRestore, "восстанавливать метрики из файла при старте")
+	databaseDSNFlag := pflag.StringP("database-dsn", "d", "", "строка подключения к БД")
+	signatureKeyFlag := pflag.StringP("signature-key", "k", "", "ключ для подписи запросов")
+	cryptoKeyPathFlag := pflag.StringP("crypto-key", "", "", "путь к приватному ключу для дешифрования данных")
+	auditFileFlag := pflag.StringP("audit-file", "", "", "путь к файлу с логами аудита")
+	auditURLFlag := pflag.StringP("audit-url", "", "", "полный URL для отправки логов аудита")
+	pprofAddrFlag := pflag.StringP("pprof", "", "", "адрес pprof-сервера")
+	pflag.Parse()
 
 	cfg := ServerConfig{}
-	serverAddr, err := getServerAddr(serverAddrFlag)
+	cfgJSON, err := getConfigJSON[ServerConfig](configFileNameFlag)
 	if err != nil {
 		return cfg, err
 	}
-	storeInterval, err := getStoreInterval(storeIntervalFlag)
+	serverAddr, err := getServerAddr(serverAddrFlag, cfgJSON.ServerAddr)
 	if err != nil {
 		return cfg, err
 	}
-	fileStoragePath := getFileStoragePath(fileStoragePathFlag)
-	restore, err := getRestore(restoreFlag)
+	storeInterval, err := getStoreInterval(*storeIntervalFlag, pflag.Lookup(storeIntervalFlagName).Changed, cfgJSON.StoreInterval)
 	if err != nil {
 		return cfg, err
 	}
-	databaseDSN, err := getDatabaseDSN(databaseDSNFlag)
+	fileStoragePath := getFileStoragePath(*fileStoragePathFlag, cfgJSON.FileStoragePath)
+	restore, err := getRestore(*restoreFlag, pflag.Lookup(restoreFlagName).Changed, cfgJSON.Restore)
 	if err != nil {
 		return cfg, err
 	}
-	key, err := getKey(keyFlag)
+	databaseDSN, err := getDatabaseDSN(*databaseDSNFlag, cfgJSON.DatabaseDSN)
 	if err != nil {
 		return cfg, err
 	}
-	auditFile, err := getAuditFile(auditFileFlag)
-	if err != nil {
-		return cfg, err
-	}
-	auditURL, err := getAuditURL(auditURLFlag)
-	if err != nil {
-		return cfg, err
-	}
-	pprofAddr := getPprofAddr(pprofAddrFlag)
+	signatureKey := getSignatureKey(*signatureKeyFlag, cfgJSON.SignatureKey)
+	cryptoKeyPath := getCryptoKeyPath(*cryptoKeyPathFlag, cfgJSON.CryptoKeyPath)
+	auditFile := getAuditFile(*auditFileFlag, cfgJSON.AuditFile)
+	auditURL := getAuditURL(*auditURLFlag, cfgJSON.AuditURL)
+	pprofAddr := getPprofAddr(*pprofAddrFlag, cfgJSON.PprofAddr)
 
 	cfg.ServerAddr = serverAddr
 	cfg.StoreInterval = storeInterval
 	cfg.FileStoragePath = fileStoragePath
 	cfg.Restore = restore
 	cfg.DatabaseDSN = databaseDSN
-	cfg.Key = key
+	cfg.SignatureKey = signatureKey
+	cfg.CryptoKeyPath = cryptoKeyPath
 	cfg.AuditFile = auditFile
 	cfg.AuditURL = auditURL
 	cfg.PprofAddr = pprofAddr
 	return cfg, nil
 }
 
-func getStoreInterval(storeIntervalFlag *int) (int, error) {
+func getConfigJSON[T any](configFileNameFlag *string) (T, error) {
+	var cfgJSON T
+	configFileName := getConfigFileName(configFileNameFlag)
+	if configFileName != "" {
+		data, err := os.ReadFile(configFileName)
+		if err != nil {
+			return cfgJSON, fmt.Errorf("failed to open config file %q: %w", configFileName, err)
+		}
+		if err = json.Unmarshal(data, &cfgJSON); err != nil {
+			return cfgJSON, fmt.Errorf("failed to unmarshal config file %q: %w", configFileName, err)
+		}
+	}
+	return cfgJSON, nil
+}
+
+func getConfigFileName(configFlag *string) string {
+	configEnvStr, ok := os.LookupEnv("CONFIG")
+	if !ok {
+		return *configFlag
+	}
+	return configEnvStr
+}
+
+func getStoreInterval(
+	storeIntervalFlag int,
+	storeIntervalFlagChanged bool,
+	storeIntervalCfgJSON configDuration,
+) (configDuration, error) {
 	storeIntervalEnvStr, ok := os.LookupEnv("STORE_INTERVAL")
-	if !ok {
-		return *storeIntervalFlag, nil
+	if ok {
+		storeIntervalEnv, err := strconv.Atoi(storeIntervalEnvStr)
+		if err != nil {
+			return 0, fmt.Errorf(
+				"failed to convert STORE_INTERNAL environment variable value %q to integer: %w",
+				storeIntervalEnvStr,
+				err,
+			)
+		}
+		return convertIntToConfigDuration(storeIntervalEnv), nil
 	}
-	storeIntervalEnv, err := strconv.Atoi(storeIntervalEnvStr)
-	if err != nil {
-		return 0, fmt.Errorf(
-			"failed to convert STORE_INTERNAL environment variable value '%s' to integer: %w",
-			storeIntervalEnvStr,
-			err,
-		)
+	if storeIntervalFlagChanged {
+		return convertIntToConfigDuration(storeIntervalFlag), nil
 	}
-	return storeIntervalEnv, nil
+	if storeIntervalCfgJSON > 0 {
+		return storeIntervalCfgJSON, nil
+	}
+	return convertIntToConfigDuration(storeIntervalFlag), nil
+}
+func convertIntToConfigDuration(seconds int) configDuration {
+	return configDuration(time.Duration(seconds) * time.Second)
 }
 
-func getFileStoragePath(fileStoragePathFlag *string) string {
+func getFileStoragePath(fileStoragePathFlag, fileStoragePathCfgJSON string) string {
 	fileStoragePathEnvStr, ok := os.LookupEnv("FILE_STORAGE_PATH")
-	if !ok {
-		return *fileStoragePathFlag
+	if ok {
+		return fileStoragePathEnvStr
 	}
-	return fileStoragePathEnvStr
+	if fileStoragePathFlag != "" {
+		return fileStoragePathFlag
+	}
+	return fileStoragePathCfgJSON
 }
 
-func getRestore(restoreFlag *bool) (bool, error) {
+func getRestore(restoreFlag, restoreFlagChanged, restoreCfgJSON bool) (bool, error) {
 	restoreEnvStr, ok := os.LookupEnv("RESTORE")
-	if !ok {
-		return *restoreFlag, nil
+	if ok {
+		restoreEnv, err := strconv.ParseBool(restoreEnvStr)
+		if err != nil {
+			return false, fmt.Errorf(
+				"failed to convert RESTORE environment variable value '%s' to boolean: %w",
+				restoreEnvStr,
+				err,
+			)
+		}
+		return restoreEnv, nil
 	}
-	restoreEnv, err := strconv.ParseBool(restoreEnvStr)
-	if err != nil {
-		return false, fmt.Errorf(
-			"failed to convert RESTORE environment variable value '%s' to boolean: %w",
-			restoreEnvStr,
-			err,
-		)
+	if restoreFlagChanged {
+		return restoreFlag, nil
 	}
-	return restoreEnv, nil
+	return restoreCfgJSON, nil
 }
 
-func getDatabaseDSN(databaseDSNFlag *string) (string, error) {
+func getDatabaseDSN(databaseDSNFlag, databaseDSNCfgJSON string) (string, error) {
 	databaseDSNEnvStr, ok := os.LookupEnv("DATABASE_DSN")
-	if !ok {
-		return *databaseDSNFlag, nil
+	if ok {
+		return databaseDSNEnvStr, nil
 	}
-	return databaseDSNEnvStr, nil
+	if databaseDSNFlag != "" {
+		return databaseDSNFlag, nil
+	}
+	return databaseDSNCfgJSON, nil
 }
 
-func getServerAddr(serverAddrFlag string) (string, error) {
+func getServerAddr(serverAddrFlag, serverAddrCfgJSON string) (string, error) {
 	serverAddrEnv, ok := os.LookupEnv("ADDRESS")
 	if !ok && serverAddrFlag != "" {
 		return serverAddrFlag, nil
+	}
+	if !ok && serverAddrCfgJSON != "" {
+		if err := validateServerAddr(serverAddrCfgJSON); err != nil {
+			return "", err
+		}
+		return serverAddrCfgJSON, nil
 	}
 	if !ok {
 		return defaultServerAddr, nil
@@ -202,34 +276,44 @@ func validateServerAddr(v string) error {
 	return nil
 }
 
-// GetAgentConfig парсит флаги/переменные окружения и возвращает AgentConfig.
+// GetAgentConfig парсит файл конфигурации/флаги/переменные окружения и возвращает AgentConfig.
 func GetAgentConfig() (AgentConfig, error) {
+	const (
+		reportIntervalFlagName = "report-interval"
+		pollIntervalFlagName   = "poll-interval"
+		rateLimitFlagName      = "rate-limit"
+	)
+
+	configFileNameFlag := pflag.StringP("config", "c", "", "путь к файлу конфигурации")
 	var serverAddrFlag string
-	flag.Func("a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
-	reportIntervalFlag := flag.Int("r", defaultReportInterval, "частота отправки метрик на сервер")
-	pollIntervalFlag := flag.Int("p", defaultPollInterval, "частота опроса метрик из пакета runtime")
-	keyFlag := flag.String("k", "", "ключ для подписи запросов")
-	rateLimitFlag := flag.Int("l", defaultRateLimit, "количество одновременно исходящих запросов агента на сервер")
-	flag.Parse()
+	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	reportIntervalFlag := pflag.IntP(reportIntervalFlagName, "r", defaultReportInterval, "частота отправки метрик на сервер (в секундах)")
+	pollIntervalFlag := pflag.IntP(pollIntervalFlagName, "p", defaultPollInterval, "частота опроса метрик из пакета runtime (в секундах)")
+	signatureKeyFlag := pflag.StringP("signature-key", "k", "", "ключ для подписи запросов")
+	cryptoKeyPathFlag := pflag.StringP("crypto-key", "", "", "путь к публичному ключу для шифрования данных")
+	rateLimitFlag := pflag.IntP(rateLimitFlagName, "l", defaultRateLimit, "количество одновременно исходящих запросов агента на сервер")
+	pflag.Parse()
 
 	cfg := AgentConfig{}
-	serverAddr, err := getServerAddr(serverAddrFlag)
+	cfgJSON, err := getConfigJSON[AgentConfig](configFileNameFlag)
 	if err != nil {
 		return cfg, err
 	}
-	reportInterval, err := getReportInterval(reportIntervalFlag)
+	serverAddr, err := getServerAddr(serverAddrFlag, cfgJSON.ServerAddr)
 	if err != nil {
 		return cfg, err
 	}
-	pollInterval, err := getPollInterval(pollIntervalFlag)
+	reportInterval, err := getReportInterval(*reportIntervalFlag, pflag.Lookup(reportIntervalFlagName).Changed, cfgJSON.ReportInterval)
 	if err != nil {
 		return cfg, err
 	}
-	key, err := getKey(keyFlag)
+	pollInterval, err := getPollInterval(*pollIntervalFlag, pflag.Lookup(pollIntervalFlagName).Changed, cfgJSON.PollInterval)
 	if err != nil {
 		return cfg, err
 	}
-	rateLimit, err := getRateLimit(rateLimitFlag)
+	signatureKey := getSignatureKey(*signatureKeyFlag, cfgJSON.SignatureKey)
+	cryptoKeyPath := getCryptoKeyPath(*cryptoKeyPathFlag, cfgJSON.CryptoKeyPath)
+	rateLimit, err := getRateLimit(*rateLimitFlag, pflag.Lookup(rateLimitFlagName).Changed, cfgJSON.RateLimit)
 	if err != nil {
 		return cfg, err
 	}
@@ -237,87 +321,137 @@ func GetAgentConfig() (AgentConfig, error) {
 	cfg.ServerAddr = serverAddr
 	cfg.ReportInterval = reportInterval
 	cfg.PollInterval = pollInterval
-	cfg.Key = key
+	cfg.SignatureKey = signatureKey
+	cfg.CryptoKeyPath = cryptoKeyPath
 	cfg.RateLimit = rateLimit
 	return cfg, nil
 }
 
-func getReportInterval(reportIntervalFlag *int) (int, error) {
+func getReportInterval(
+	reportIntervalFlag int,
+	reportIntervalFlagChanged bool,
+	reportIntervalCfgJSON configDuration,
+) (configDuration, error) {
 	reportIntervalEnvStr, ok := os.LookupEnv("REPORT_INTERVAL")
-	if !ok {
-		return *reportIntervalFlag, nil
+	if ok {
+		reportIntervalEnv, err := strconv.Atoi(reportIntervalEnvStr)
+		if err != nil {
+			return 0, fmt.Errorf(
+				"failed to convert REPORT_INTERVAL environment variable value '%s' to integer: %w",
+				reportIntervalEnvStr,
+				err,
+			)
+		}
+		return convertIntToConfigDuration(reportIntervalEnv), nil
 	}
-	reportIntervalEnv, err := strconv.Atoi(reportIntervalEnvStr)
-	if err != nil {
-		return 0, fmt.Errorf(
-			"failed to convert REPORT_INTERVAL environment variable value '%s' to integer: %w",
-			reportIntervalEnvStr,
-			err,
-		)
+	if reportIntervalFlagChanged {
+		return convertIntToConfigDuration(reportIntervalFlag), nil
 	}
-	return reportIntervalEnv, nil
+	if reportIntervalCfgJSON > 0 {
+		return reportIntervalCfgJSON, nil
+	}
+	return convertIntToConfigDuration(reportIntervalFlag), nil
 }
 
-func getPollInterval(pollIntervalFlag *int) (int, error) {
+func getPollInterval(
+	pollIntervalFlag int,
+	pollIntervalFlagChanged bool,
+	pollIntervalCfgJSON configDuration,
+) (configDuration, error) {
 	pollIntervalEnvStr, ok := os.LookupEnv("POLL_INTERVAL")
-	if !ok {
-		return *pollIntervalFlag, nil
+	if ok {
+		pollIntervalEnv, err := strconv.Atoi(pollIntervalEnvStr)
+		if err != nil {
+			return 0, fmt.Errorf(
+				"failed to convert POLL_INTERVAL environment variable value '%s' to integer: %w",
+				pollIntervalEnvStr,
+				err,
+			)
+		}
+		return convertIntToConfigDuration(pollIntervalEnv), nil
 	}
-	pollIntervalEnv, err := strconv.Atoi(pollIntervalEnvStr)
-	if err != nil {
-		return 0, fmt.Errorf(
-			"failed to convert POLL_INTERVAL environment variable value '%s' to integer: %w",
-			pollIntervalEnvStr,
-			err,
-		)
+	if pollIntervalFlagChanged {
+		return convertIntToConfigDuration(pollIntervalFlag), nil
 	}
-	return pollIntervalEnv, nil
+	if pollIntervalCfgJSON > 0 {
+		return pollIntervalCfgJSON, nil
+	}
+	return convertIntToConfigDuration(pollIntervalFlag), nil
 }
 
-func getKey(keyFlag *string) (string, error) {
-	keyEnvStr, ok := os.LookupEnv("KEY")
-	if !ok {
-		return *keyFlag, nil
+func getSignatureKey(signatureKeyFlag, signatureKeyCfgJSON string) string {
+	signatureKeyEnvStr, ok := os.LookupEnv("KEY")
+	if ok {
+		return signatureKeyEnvStr
 	}
-	return keyEnvStr, nil
+	if signatureKeyFlag != "" {
+		return signatureKeyFlag
+	}
+	return signatureKeyCfgJSON
 }
 
-func getAuditFile(auditFileFlag *string) (string, error) {
+func getCryptoKeyPath(cryptoKeyPathFlag, cryptoKeyPathCfgJSON string) string {
+	cryptoKeyPathEnvStr, ok := os.LookupEnv("CRYPTO_KEY")
+	if ok {
+		return cryptoKeyPathEnvStr
+	}
+	if cryptoKeyPathFlag != "" {
+		return cryptoKeyPathFlag
+	}
+	return cryptoKeyPathCfgJSON
+}
+
+func getAuditFile(auditFileFlag, auditFileCfgJSON string) string {
 	auditFileEnvStr, ok := os.LookupEnv("AUDIT_FILE")
-	if !ok {
-		return *auditFileFlag, nil
+	if ok {
+		return auditFileEnvStr
 	}
-	return auditFileEnvStr, nil
+	if auditFileFlag != "" {
+		return auditFileFlag
+	}
+	return auditFileCfgJSON
 }
 
-func getAuditURL(auditURLFlag *string) (string, error) {
+func getAuditURL(auditURLFlag, auditURLCfgJSON string) string {
 	auditURLEnvStr, ok := os.LookupEnv("AUDIT_URL")
-	if !ok {
-		return *auditURLFlag, nil
+	if ok {
+		return auditURLEnvStr
 	}
-	return auditURLEnvStr, nil
+	if auditURLFlag != "" {
+		return auditURLFlag
+	}
+	return auditURLCfgJSON
 }
 
-func getPprofAddr(pprofAddrFlag *string) string {
+func getPprofAddr(pprofAddrFlag, pprofAddrCfgJSON string) string {
 	pprofAddrEnvStr, ok := os.LookupEnv("PPROF_ADDR")
-	if !ok {
-		return *pprofAddrFlag
+	if ok {
+		return pprofAddrEnvStr
 	}
-	return pprofAddrEnvStr
+	if pprofAddrFlag != "" {
+		return pprofAddrFlag
+	}
+	return pprofAddrCfgJSON
 }
 
-func getRateLimit(rateLimitFlag *int) (int, error) {
+func getRateLimit(rateLimitFlag int, rateLimitFlagChanged bool, rateLimitCfgJSON int) (int, error) {
 	rateLimitEnvStr, ok := os.LookupEnv("RATE_LIMIT")
-	if !ok {
-		return *rateLimitFlag, nil
+	if ok {
+		rateLimitEnv, err := strconv.Atoi(rateLimitEnvStr)
+		if err != nil {
+			return 0, fmt.Errorf(
+				"failed to convert RATE_LIMIT environment variable value '%s' to integer: %w",
+				rateLimitEnvStr,
+				err,
+			)
+		}
+		return rateLimitEnv, nil
 	}
-	rateLimitEnv, err := strconv.Atoi(rateLimitEnvStr)
-	if err != nil {
-		return 0, fmt.Errorf(
-			"failed to convert RATE_LIMIT environment variable value '%s' to integer: %w",
-			rateLimitEnvStr,
-			err,
-		)
+	if rateLimitFlagChanged {
+		return rateLimitFlag, nil
 	}
-	return rateLimitEnv, nil
+	if rateLimitCfgJSON > 0 {
+		return rateLimitCfgJSON, nil
+	}
+	return rateLimitFlag, nil
 }

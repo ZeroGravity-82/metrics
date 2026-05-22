@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"zerogravity-82/metrics/internal/model"
 )
@@ -16,12 +18,16 @@ import (
 type testObserver struct {
 	calls atomic.Int64
 	wg    *sync.WaitGroup
+	fn    func(context.Context, model.AuditLog) error
 }
 
-func (o *testObserver) update(_ context.Context, _ model.AuditLog) error {
+func (o *testObserver) update(ctx context.Context, log model.AuditLog) error {
 	o.calls.Add(1)
 	if o.wg != nil {
 		o.wg.Done()
+	}
+	if o.fn != nil {
+		return o.fn(ctx, log)
 	}
 	return nil
 }
@@ -91,9 +97,7 @@ func TestAsyncPublisher_PublishLog_NotifyObserversSuccessfully(t *testing.T) {
 	p.Register(o2, o3)
 	_ = p.Deregister(o4)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go p.Run(ctx)
+	go p.Run()
 
 	// Act
 	p.PublishLog(context.Background(), time.Now(), "127.0.0.1:1234", model.Metrics{ID: "m1"})
@@ -135,4 +139,137 @@ func TestAsyncPublisher_PublishLog_DropsWhenQueueFull(t *testing.T) {
 
 	// Assert
 	assert.Equal(t, defaultQueueSize, len(p.queue))
+}
+
+// TestAsyncPublisher_PublishLog_IgnoresEventsAfterShutdownStarts проверяет, что после начала Shutdown() новые события
+// больше не принимаются в очередь публикации.
+func TestAsyncPublisher_PublishLog_IgnoresEventsAfterShutdownStarts(t *testing.T) {
+	// Arrange
+	p := NewAsyncPublisher(zerolog.Nop(), &testObserver{})
+	go p.Run()
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		p.Shutdown(context.Background())
+	}()
+
+	// Arrange
+	require.Eventually(t, func() bool { // Дожидаемся момента, когда паблишер уже вошел в режим остановки.
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.closing
+	}, time.Second, 10*time.Millisecond)
+
+	// Act
+	p.PublishLog(context.Background(), time.Now(), "127.0.0.1:1234", model.Metrics{ID: "m1"})
+
+	// Assert
+	assert.Zero(t, len(p.queue))
+	select { // Shutdown должен завершиться без зависания.
+	case <-shutdownDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown did not finish")
+	}
+}
+
+// TestAsyncPublisher_Shutdown_DrainsQueueAndWaitsForObservers проверяет, что Shutdown() дочитывает все накопленные
+// события из очереди и дожидается завершения их доставки наблюдателям.
+func TestAsyncPublisher_Shutdown_DrainsQueueAndWaitsForObservers(t *testing.T) {
+	// Arrange
+	processed := make(chan int64, 2)
+	observer := &testObserver{ // Наблюдатель, который проверяет, что при drain используется рабочий контекст.
+		fn: func(ctx context.Context, log model.AuditLog) error {
+			if ctx.Err() != nil {
+				return errors.New("shutdown context canceled before delivery")
+			}
+			processed <- log.TS
+			return nil
+		},
+	}
+	p := NewAsyncPublisher(zerolog.Nop(), observer)
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- p.Run()
+	}()
+
+	p.PublishLog(context.Background(), time.Unix(1, 0), "127.0.0.1:1234", model.Metrics{ID: "m1"})
+	p.PublishLog(context.Background(), time.Unix(2, 0), "127.0.0.1:1234", model.Metrics{ID: "m2"})
+
+	// Act
+	p.Shutdown(context.Background())
+
+	// Assert
+	received := map[int64]struct{}{}
+	deadline := time.After(2 * time.Second)
+	for len(received) < 2 { // Оба события должны быть вычитаны из очереди и доставлены наблюдателю.
+		select {
+		case ts := <-processed:
+			received[ts] = struct{}{}
+		case <-deadline:
+			t.Fatal("timed out waiting for drained audit events")
+		}
+	}
+
+	select { // После завершения drain фоновой воркер должен корректно остановиться.
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("publisher did not stop after shutdown")
+	}
+}
+
+// TestAsyncPublisher_Shutdown_StopsWaitingOnContextTimeout проверяет, что Shutdown() прекращает ожидание зависшего
+// observer после истечения дедлайна контекста.
+func TestAsyncPublisher_Shutdown_StopsWaitingOnContextTimeout(t *testing.T) {
+	// Arrange
+	observerStarted := make(chan struct{})
+	observerRelease := make(chan struct{})
+	var observerStartedOnce sync.Once
+	observer := &testObserver{ // Наблюдатель зависает, пока его явно не отпустят, либо пока не отменится контекст.
+		fn: func(ctx context.Context, _ model.AuditLog) error {
+			observerStartedOnce.Do(func() {
+				close(observerStarted)
+			})
+			select {
+			case <-observerRelease:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}
+	p := NewAsyncPublisher(zerolog.Nop(), observer)
+
+	runDone := make(chan error, 1)
+	go func() { // Запускаем Run() в отдельной горутине, чтобы проверить, что он завершится по таймауту контекста.
+		runDone <- p.Run()
+	}()
+
+	p.PublishLog(context.Background(), time.Unix(1, 0), "127.0.0.1:1234", model.Metrics{ID: "m1"})
+	require.Eventually(t, func() bool { // Дожидаемся, пока observer действительно начал обработку события.
+		select {
+		case <-observerStarted:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	// Act
+	p.Shutdown(shutdownCtx) // Запускаем остановку с коротким таймаутом: паблишер прекращает ждать зависший наблюдатель.
+
+	// Assert
+	select {
+	case err := <-runDone:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(2 * time.Second):
+		t.Fatal("publisher did not stop after shutdown timeout")
+	}
+
+	close(observerRelease) // Освобождаем наблюдателя, чтобы после теста не оставлять зависшую горутину.
 }

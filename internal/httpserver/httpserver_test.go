@@ -21,8 +21,10 @@ func TestHTTPServer_Run_AddressInUse(t *testing.T) {
 	logger := zerolog.Nop()
 	memStorage := repository.NewMemStorage()
 	publisher := audit.NewAsyncPublisher(logger)
+	signatureKey := "secret"
+	cryptoKeyPath := ""
 
-	srv := NewHTTPServer(listener.Addr().String(), memStorage, publisher, "secret", logger)
+	srv := NewHTTPServer(listener.Addr().String(), memStorage, publisher, signatureKey, cryptoKeyPath, logger)
 	ctx := context.Background()
 
 	// Act

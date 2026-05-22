@@ -3,8 +3,13 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
+	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/url"
@@ -19,8 +24,11 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 
 	"zerogravity-82/metrics/internal/config"
+	"zerogravity-82/metrics/internal/encryption"
 	"zerogravity-82/metrics/internal/model"
 )
+
+const requestTimeout = 10 * time.Second
 
 type metrics struct {
 	mu   sync.Mutex
@@ -122,6 +130,12 @@ func (m *metrics) pollUtilMetrics(logger zerolog.Logger) {
 }
 
 func (m *metrics) copyMetricsAndResetPollCount() map[string]model.Metrics {
+	mCopy := m.copyMetrics()
+	m.resetPollCount()
+	return mCopy
+}
+
+func (m *metrics) copyMetrics() map[string]model.Metrics {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -129,7 +143,6 @@ func (m *metrics) copyMetricsAndResetPollCount() map[string]model.Metrics {
 	for n, v := range m.data {
 		mCopy[n] = v
 	}
-	m.resetPollCount()
 	return mCopy
 }
 
@@ -145,54 +158,106 @@ func (m *metrics) restorePollCount(delta int64) {
 // Run запускает цикл опроса метрик и периодически отправляет их на сервер.
 //
 // Функция блокируется, пока процесс не будет остановлен.
-func Run(cfg config.AgentConfig, logger zerolog.Logger) {
+func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) {
 	m := newMetrics()
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+		ticker := time.NewTicker(time.Duration(cfg.PollInterval))
 		defer ticker.Stop()
 
-		for range ticker.C {
-			m.pollMetrics()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.pollMetrics()
+			}
 		}
 	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+		ticker := time.NewTicker(time.Duration(cfg.PollInterval))
 		defer ticker.Stop()
 
-		for range ticker.C {
-			m.pollUtilMetrics(logger)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.pollUtilMetrics(logger)
+			}
 		}
 	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		ticker := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
+		ticker := time.NewTicker(time.Duration(cfg.ReportInterval))
 		defer ticker.Stop()
 
 		s := NewSemaphore(cfg.RateLimit)
 		const maxRetries = 3
 		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
-		for range ticker.C {
-			s.Acquire()
-			go func() {
-				defer s.Release()
 
-				mCopy := m.copyMetricsAndResetPollCount()
-				if err := sendReport(cfg.ServerAddr, cfg.Key, mCopy, httpClient); err != nil {
-					logger.Error().Err(err).Msg("Error on sending metrics")
+		for {
+			select {
+			case <-ctx.Done():
+				mCopy := m.copyMetrics()
+				if *mCopy["PollCount"].Delta > 0 {
+					shutdownCtx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+					defer cancel()
 
-					// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
-					// возвращается в структуру metrics
-					m.restorePollCount(*mCopy["PollCount"].Delta)
+					if err := sendReport(
+						shutdownCtx,
+						cfg.ServerAddr,
+						cfg.SignatureKey,
+						cfg.CryptoKeyPath,
+						mCopy,
+						httpClient,
+					); err != nil && !errors.Is(err, context.Canceled) {
+						logger.Error().Err(err).Msg("Error on sending metrics")
+					}
 				}
-			}()
+				return
+			case <-ticker.C:
+				select {
+				case <-ctx.Done(): // Защита на случай одновременной отмены контекста и срабатывания тикера.
+					continue
+				default:
+				}
+
+				s.Acquire()
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer s.Release()
+
+					requestCtx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+					defer cancel()
+
+					mCopy := m.copyMetricsAndResetPollCount()
+					if err := sendReport(
+						requestCtx,
+						cfg.ServerAddr,
+						cfg.SignatureKey,
+						cfg.CryptoKeyPath,
+						mCopy,
+						httpClient,
+					); err != nil {
+						logger.Error().Err(err).Msg("Error on sending metrics")
+
+						// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
+						// возвращается в структуру metrics
+						m.restorePollCount(*mCopy["PollCount"].Delta)
+					}
+				}()
+			}
 		}
 	}()
 	wg.Wait()
@@ -214,18 +279,34 @@ func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Durati
 	}
 }
 
-func sendReport(serverAddr, key string, metrics map[string]model.Metrics, httpClient *resty.Client) error {
+func sendReport(
+	ctx context.Context,
+	serverAddr,
+	signatureKey,
+	cryptoKeyPath string,
+	metrics map[string]model.Metrics,
+	httpClient *resty.Client,
+) error {
 	metricsSlice := make([]model.Metrics, 0, len(metrics))
 	for _, v := range metrics {
 		metricsSlice = append(metricsSlice, v)
 	}
-	if err := sendMetrics(serverAddr, key, metricsSlice, httpClient); err != nil {
+	if err := sendMetrics(ctx, serverAddr, signatureKey, cryptoKeyPath, metricsSlice, httpClient); err != nil {
 		return err
 	}
 	return nil
 }
 
-func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *resty.Client) error {
+func sendMetrics(
+	ctx context.Context,
+	serverAddr,
+	signatureKey,
+	cryptoKeyPath string,
+	metrics []model.Metrics,
+	httpClient *resty.Client,
+) error {
+	const xEncryptedHeaderValue = "aes-gcm+rsa-oaep-sha256"
+
 	jsonBz, err := marshal(metrics)
 	if err != nil {
 		return err
@@ -234,6 +315,16 @@ func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *re
 	if err != nil {
 		return err
 	}
+	var encryptedGzipBz, encryptedKeyBz, bodyBz []byte
+	if cryptoKeyPath != "" {
+		encryptedGzipBz, encryptedKeyBz, err = encryption.Encrypt(gzipBz, cryptoKeyPath)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt metrics: %w", err)
+		}
+		bodyBz = encryptedGzipBz
+	} else {
+		bodyBz = gzipBz
+	}
 
 	serverAddr = addDefaultURLSchema(serverAddr)
 	urlPath, err := url.JoinPath(serverAddr, "/updates")
@@ -241,12 +332,16 @@ func sendMetrics(serverAddr, key string, metrics []model.Metrics, httpClient *re
 		return fmt.Errorf("failed to build URL: %w", err)
 	}
 	r := httpClient.R().
+		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
-		SetBody(gzipBz)
-	if key != "" {
-		hashBz := sha256.Sum256(jsonBz)
-		r.SetHeader("HashSHA256", fmt.Sprintf("%x", hashBz))
+		SetBody(bodyBz)
+	if signatureKey != "" {
+		r.SetHeader("HashSHA256", generateHexEncodedSignature(jsonBz, signatureKey))
+	}
+	if cryptoKeyPath != "" {
+		r.SetHeader(encryption.XEncryptedHeaderName, xEncryptedHeaderValue)
+		r.SetHeader(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString(encryptedKeyBz))
 	}
 	_, err = r.Post(urlPath)
 	if err != nil {
@@ -293,4 +388,11 @@ func addDefaultURLSchema(urlPath string) string {
 		urlPrefix = "https://"
 	}
 	return urlPrefix + host + ":" + port
+}
+
+func generateHexEncodedSignature(data []byte, key string) string {
+	h := hmac.New(sha256.New, []byte(key))
+	h.Write(data)
+	signature := hex.EncodeToString(h.Sum(nil))
+	return signature
 }

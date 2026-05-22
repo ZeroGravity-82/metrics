@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/rs/zerolog"
 
@@ -33,7 +35,10 @@ func run(logger zerolog.Logger) error {
 	}
 	defer app.Close()
 
-	if err = app.Run(context.Background()); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer stop()
+
+	if err = app.Run(ctx); err != nil {
 		return fmt.Errorf("execution error: %w", err)
 	}
 	return nil

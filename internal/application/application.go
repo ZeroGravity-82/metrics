@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -65,7 +66,7 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit publisher error: %w", err)
 	}
-	httpSrv := httpserver.NewHTTPServer(cfg.ServerAddr, storage, publisher, cfg.Key, logger)
+	httpSrv := httpserver.NewHTTPServer(cfg.ServerAddr, storage, publisher, cfg.SignatureKey, cfg.CryptoKeyPath, logger)
 	pprofSrv := httpserver.NewPprofServer(cfg.PprofAddr, logger)
 
 	return &Application{
@@ -93,13 +94,54 @@ func applyMigrations(db *sqlx.DB) error {
 	return nil
 }
 
-// Run запускает основные подсистемы сервиса и ждет их завершения.
+// Run запускает основные подсистемы сервиса и блокируется, пока не отменен контекст или один из серверов не
+// остановится с ошибкой.
 func (app *Application) Run(ctx context.Context) error {
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error { return app.httpSrv.Run(ctx) })
-	eg.Go(func() error { return app.pprofSrv.Run(ctx) })
-	eg.Go(func() error { app.auditPublisher.Run(ctx); return nil })
-	return eg.Wait()
+	serverErrCh := app.runServers(ctx)
+	auditErrCh := app.runAuditPublisher()
+
+	select {
+	case <-ctx.Done():
+		serverErr := <-serverErrCh // блокируемся до завершения работы группы серверов
+		auditErr := app.shutdownAuditPublisher(auditErrCh)
+		return errors.Join(serverErr, auditErr)
+	case serverErr := <-serverErrCh:
+		auditErr := app.shutdownAuditPublisher(auditErrCh)
+		return errors.Join(serverErr, auditErr)
+	}
+}
+
+func (app *Application) runServers(ctx context.Context) <-chan error {
+	serverErrCh := make(chan error, 1)
+	eg, groupCtx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		return app.httpSrv.Run(groupCtx)
+	})
+	eg.Go(func() error {
+		return app.pprofSrv.Run(groupCtx)
+	})
+	go func() {
+		serverErrCh <- eg.Wait()
+	}()
+	return serverErrCh
+}
+
+func (app *Application) runAuditPublisher() <-chan error {
+	auditErrCh := make(chan error, 1)
+	go func() {
+		auditErrCh <- app.auditPublisher.Run()
+	}()
+	return auditErrCh
+}
+
+func (app *Application) shutdownAuditPublisher(auditErrCh <-chan error) error {
+	const shutdownTimeout = 10 * time.Second
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	app.auditPublisher.Shutdown(shutdownCtx)
+	return <-auditErrCh
 }
 
 // Close освобождает ресурсы сервиса.

@@ -27,22 +27,43 @@ func NewPprofServer(addr string, logger zerolog.Logger) *PprofServer {
 	return &PprofServer{addr: addr, logger: logger}
 }
 
-// Run запускает pprof-сервер.
+// Run запускает pprof-сервер и блокируется, пока не отменен контекст или сервер не остановится с ошибкой.
 //
 // Если адрес пустой, метод ничего не делает и возвращает nil.
-func (s *PprofServer) Run(_ context.Context) error {
+func (s *PprofServer) Run(ctx context.Context) error {
 	if s.addr == "" {
 		return nil
 	}
-	s.logger.Info().Str("address", s.addr).Msg("pprof server started")
 	srv := http.Server{
 		Addr:              s.addr,
 		Handler:           handler.PprofRouter(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	err := srv.ListenAndServe()
-	if !errors.Is(err, http.ErrServerClosed) {
+
+	errCh := make(chan error, 1)
+	go func() {
+		s.logger.Info().Str("address", s.addr).Msg("starting pprof server")
+		errCh <- srv.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		err := srv.Shutdown(shutdownCtx)
+		if err == nil {
+			s.logger.Info().Msg("pprof server stopped with graceful shutdown")
+			return nil
+		}
+		s.logger.Error().Err(err).Msg("pprof server stopped with error")
+		return fmt.Errorf("pprof server stopped with error: %w", err)
+	case err := <-errCh:
+		if err == nil || errors.Is(err, http.ErrServerClosed) {
+			s.logger.Info().Msg("pprof server closed")
+			return nil
+		}
+		s.logger.Error().Err(err).Msg("pprof server failed with error")
 		return fmt.Errorf("pprof server error: %w", err)
 	}
-	return nil
 }

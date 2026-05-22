@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"zerogravity-82/metrics/internal/encryption"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -32,17 +34,16 @@ import (
 //	GET  /ping
 //
 // Если key не пустой, включается middleware подписи запросов/ответов.
-func MetricRouter(s Storage, a AuditPublisher, key string, logger zerolog.Logger) chi.Router {
+func MetricRouter(s Storage, a AuditPublisher, signatureKey, cryptoKeyPath string, logger zerolog.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
 		middleware.RealIP,
 		withLogging(logger),
+		withEncryption(cryptoKeyPath),
 		withGzip(logger),
+		withSignature(signatureKey, logger),
 	)
-	if key != "" {
-		r.Use(withSignature(key, logger))
-	}
 	h := New(s, a, logger)
 
 	textPlainContentType := middleware.AllowContentType("text/plain")
@@ -85,29 +86,35 @@ func withLogging(logger zerolog.Logger) func(next http.Handler) http.Handler {
 	}
 }
 
-func withSignature(key string, logger zerolog.Logger) func(next http.Handler) http.Handler {
+func withSignature(signatureKey string, logger zerolog.Logger) func(next http.Handler) http.Handler {
 	const signatureHeaderName = "HashSHA256"
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			signatureHeader := r.Header.Get(signatureHeaderName)
+			if signatureHeader == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if signatureKey == "" {
+				http.Error(w, "server signature key is not configured", http.StatusBadRequest)
+				return
+			}
+
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("unable to read request body: %s", err.Error()), http.StatusBadRequest)
 				return
 			}
 			if len(body) > 0 {
-				if r.Header.Get(signatureHeaderName) == "" {
-					http.Error(w, fmt.Sprintf("header %s is not provided", signatureHeaderName), http.StatusBadRequest)
-					return
-				}
-				err = validateSignature(r.Header.Get(signatureHeaderName), body, key)
+				err = validateSignature(signatureHeader, body, signatureKey)
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
 				}
 			}
 			r.Body = io.NopCloser(bytes.NewBuffer(body))
-			ow := newSigningResponseWriter(w, key, logger)
+			ow := newSigningResponseWriter(w, signatureKey, logger)
 			next.ServeHTTP(ow, r)
 		})
 	}
@@ -160,6 +167,45 @@ func withGzip(logger zerolog.Logger) func(next http.Handler) http.Handler {
 				r.Body = cr
 			}
 			next.ServeHTTP(ow, r)
+		})
+	}
+}
+
+func withEncryption(cryptoKeyPath string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			xEncryptedHeader := r.Header.Get(encryption.XEncryptedHeaderName)
+			if xEncryptedHeader == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if cryptoKeyPath == "" {
+				http.Error(w, "server crypto key is not configured", http.StatusBadRequest)
+				return
+			}
+
+			xEncryptedKeyHeader := r.Header.Get(encryption.XEncryptedKeyHeaderName)
+			if xEncryptedKeyHeader == "" {
+				http.Error(
+					w,
+					fmt.Sprintf("header %s is not provided", encryption.XEncryptedKeyHeaderName),
+					http.StatusBadRequest,
+				)
+				return
+			}
+			xEncryptedKeyBz, err := base64.StdEncoding.DecodeString(xEncryptedKeyHeader)
+			if err != nil {
+				http.Error(
+					w,
+					fmt.Sprintf("unable to decode header %q: %s", encryption.XEncryptedKeyHeaderName, err.Error()),
+					http.StatusBadRequest,
+				)
+				return
+			}
+			er := newEncryptRequestReader(r.Body, xEncryptedKeyBz, cryptoKeyPath)
+			defer er.Close()
+			r.Body = er
+			next.ServeHTTP(w, r)
 		})
 	}
 }

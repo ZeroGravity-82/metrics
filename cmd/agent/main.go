@@ -2,7 +2,10 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/rs/zerolog"
 
@@ -25,5 +28,8 @@ func main() {
 		logger.Fatal().Err(err).Msg("Config error")
 	}
 
-	agent.Run(cfg, logger)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer stop()
+
+	agent.Run(ctx, cfg, logger)
 }

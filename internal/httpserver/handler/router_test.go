@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"zerogravity-82/metrics/internal/encryption"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jmoiron/sqlx"
@@ -34,8 +36,9 @@ func TestUpdateMetricHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -181,8 +184,9 @@ func TestUpdateHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -350,8 +354,9 @@ func TestUpdatesHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -507,8 +512,9 @@ func TestGetMetricHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -600,8 +606,9 @@ func TestGetHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -723,8 +730,9 @@ func TestGetMetricListHandler(t *testing.T) {
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -788,8 +796,9 @@ func TestPingHandler(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	ds := repository.NewDBStorage(sqlxDB)
 	a := audit.NewAsyncPublisher(logger)
-	key := ""
-	ts := httptest.NewServer(MetricRouter(ds, a, key, logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	ts := httptest.NewServer(MetricRouter(ds, a, signatureKey, cryptoKeyPath, logger))
 	defer ts.Close()
 
 	tests := []struct {
@@ -836,4 +845,65 @@ func TestPingHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMetricRouter_FailsFastWhenEncryptedHeaderWithoutServerKey(t *testing.T) {
+	// Arrange
+	logger := zerolog.Nop()
+	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
+	ts := httptest.NewServer(MetricRouter(ms, a, "", "", logger))
+	defer ts.Close()
+
+	payload := []byte(`{"id":"PollCount","type":"counter","delta":1}`)
+	gzPayload := gzipBody(payload)
+	urlPath, err := url.JoinPath(ts.URL, "/update")
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPost, urlPath, bytes.NewReader(gzPayload))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set(encryption.XEncryptedHeaderName, "aes-gcm+rsa-oaep-sha256")
+	req.Header.Set(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString([]byte("encrypted-key")))
+
+	// Act
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	// Assert
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, string(body), "server crypto key is not configured")
+}
+
+func TestMetricRouter_FailsFastWhenSignatureHeaderWithoutServerKey(t *testing.T) {
+	// Arrange
+	logger := zerolog.Nop()
+	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
+	ts := httptest.NewServer(MetricRouter(ms, a, "", "", logger))
+	defer ts.Close()
+
+	payload := []byte(`{"id":"PollCount","type":"counter","delta":1}`)
+	gzPayload := gzipBody(payload)
+	urlPath, err := url.JoinPath(ts.URL, "/update")
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPost, urlPath, bytes.NewReader(gzPayload))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("HashSHA256", "deadbeef")
+
+	// Act
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	// Assert
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, string(body), "server signature key is not configured")
 }
