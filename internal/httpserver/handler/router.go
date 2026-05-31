@@ -249,7 +249,7 @@ func withTrustedSubnet(trustedSubnetStr string, logger zerolog.Logger) func(next
 
 			realIPHeader := r.Header.Get(realIPHeaderName)
 			if realIPHeader == "" {
-				http.Error(w, fmt.Sprintf("header %s is required", realIPHeaderName), http.StatusForbidden)
+				http.Error(w, fmt.Sprintf("header %s is not provided", realIPHeaderName), http.StatusForbidden)
 				return
 			}
 
@@ -259,7 +259,7 @@ func withTrustedSubnet(trustedSubnetStr string, logger zerolog.Logger) func(next
 				return
 			}
 			if !trustedSubnet.Contains(ip) {
-				http.Error(w, "agent IP is not in the trusted subnet", http.StatusForbidden)
+				http.Error(w, "your IP is not in the trusted subnet", http.StatusForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)

@@ -941,7 +941,7 @@ func TestMetricRouter_TrustedSubnet(t *testing.T) {
 			trustedSubnet:  "192.168.1.0/24",
 			realIP:         "10.0.0.1",
 			wantStatusCode: http.StatusForbidden,
-			wantBody:       "your IP address in not allowed",
+			wantBody:       "your IP is not in the trusted subnet",
 		},
 		{
 			name:           "allow when trusted subnet is empty",
@@ -1014,12 +1014,12 @@ func TestMetricRouter_TrustedSubnetHeaderValidation(t *testing.T) {
 		wantBody       string
 	}{
 		{
-			name:           "forbid when x real ip header is missing",
+			name:           "forbid when x-real-ip header is missing",
 			wantStatusCode: http.StatusForbidden,
 			wantBody:       "header X-Real-IP is not provided",
 		},
 		{
-			name:           "bad request when x real ip header is invalid",
+			name:           "bad request when x-real-ip header is invalid",
 			realIP:         "not-an-ip",
 			wantStatusCode: http.StatusBadRequest,
 			wantBody:       "invalid header X-Real-IP format",
