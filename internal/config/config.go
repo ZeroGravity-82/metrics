@@ -17,6 +17,7 @@ import (
 
 const (
 	defaultServerAddr     = "localhost:8080"
+	defaultGRPCServerAddr = "localhost:3201"
 	defaultReportInterval = 10
 	defaultPollInterval   = 2
 	defaultStoreInterval  = 300
@@ -27,6 +28,8 @@ const (
 // AgentConfig описывает конфигурацию агента.
 //
 // ServerAddr - адрес сервера метрик в формате host:port.
+//
+// GRPCServerAddr - адрес gRPC-сервера в формате host:port.
 //
 // ReportInterval - периодичность отправки метрик на сервер.
 //
@@ -39,6 +42,7 @@ const (
 // RateLimit - ограничение на число одновременно исходящих запросов агента.
 type AgentConfig struct {
 	ServerAddr     string         `json:"address"`
+	GRPCServerAddr string         `json:"grpc_address"`
 	ReportInterval configDuration `json:"report_interval"`
 	PollInterval   configDuration `json:"poll_interval"`
 	SignatureKey   string         `json:"signature_key"`
@@ -49,6 +53,8 @@ type AgentConfig struct {
 // ServerConfig описывает конфигурацию сервера метрик.
 //
 // ServerAddr - адрес HTTP-сервера в формате host:port.
+//
+// GRPCServerAddr - адрес gRPC-сервера в формате host:port.
 //
 // StoreInterval - периодичность сохранения метрик на диск.
 //
@@ -71,6 +77,7 @@ type AgentConfig struct {
 // TrustedSubnet - CIDR доверенной подсети (опционально).
 type ServerConfig struct {
 	ServerAddr      string         `json:"address"`
+	GRPCServerAddr  string         `json:"grpc_address"`
 	StoreInterval   configDuration `json:"store_interval"`
 	FileStoragePath string         `json:"store_file"`
 	Restore         bool           `json:"restore"`
@@ -93,6 +100,8 @@ func GetServerConfig() (ServerConfig, error) {
 	configFileNameFlag := pflag.StringP("config", "c", "", "путь к файлу конфигурации")
 	var serverAddrFlag string
 	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	var grpcServerAddrFlag string
+	pflag.FuncP("grpc-address", "", grpcServerAddrUsage(), grpcServerAddrFlagParser(&grpcServerAddrFlag))
 	storeIntervalFlag := pflag.IntP(storeIntervalFlagName, "i", defaultStoreInterval, "интервал сохранения метрик на диск (в секундах)")
 	fileStoragePathFlag := pflag.StringP("file-storage-path", "f", "", "путь до файла с метриками")
 	restoreFlag := pflag.BoolP(restoreFlagName, "r", defaultRestore, "восстанавливать метрики из файла при старте")
@@ -111,6 +120,10 @@ func GetServerConfig() (ServerConfig, error) {
 		return cfg, err
 	}
 	serverAddr, err := getServerAddr(serverAddrFlag, cfgJSON.ServerAddr)
+	if err != nil {
+		return cfg, err
+	}
+	grpcServerAddr, err := getGRPCServerAddr(grpcServerAddrFlag, cfgJSON.GRPCServerAddr)
 	if err != nil {
 		return cfg, err
 	}
@@ -138,6 +151,7 @@ func GetServerConfig() (ServerConfig, error) {
 	}
 
 	cfg.ServerAddr = serverAddr
+	cfg.GRPCServerAddr = grpcServerAddr
 	cfg.StoreInterval = storeInterval
 	cfg.FileStoragePath = fileStoragePath
 	cfg.Restore = restore
@@ -267,8 +281,39 @@ func getServerAddr(serverAddrFlag, serverAddrCfgJSON string) (string, error) {
 	return serverAddrEnvStr, nil
 }
 
+func getGRPCServerAddr(grpcServerAddrFlag, grpcServerAddrCfgJSON string) (string, error) {
+	grpcServerAddrEnvStr, ok := os.LookupEnv("GRPC_ADDRESS")
+	if !ok && grpcServerAddrFlag != "" {
+		if err := validateServerAddr(grpcServerAddrFlag); err != nil {
+			return "", err
+		}
+		return grpcServerAddrFlag, nil
+	}
+	if !ok && grpcServerAddrCfgJSON != "" {
+		if err := validateServerAddr(grpcServerAddrCfgJSON); err != nil {
+			return "", err
+		}
+		return grpcServerAddrCfgJSON, nil
+	}
+	if !ok {
+		return defaultGRPCServerAddr, nil
+	}
+	if err := validateServerAddr(grpcServerAddrEnvStr); err != nil {
+		return "", err
+	}
+	return grpcServerAddrEnvStr, nil
+}
+
 func serverAddrUsage() string {
 	return fmt.Sprintf(`адрес HTTP-сервера (default "%s")`, defaultServerAddr)
+}
+
+func grpcServerAddrUsage() string {
+	return fmt.Sprintf(`адрес gRPC-сервера (default "%s")`, defaultGRPCServerAddr)
+}
+
+func agentGRPCServerAddrUsage() string {
+	return `адрес gRPC-сервера (default "")`
 }
 
 func serverAddrFlagParser(serverAddr *string) func(string) error {
@@ -281,12 +326,52 @@ func serverAddrFlagParser(serverAddr *string) func(string) error {
 	}
 }
 
+func grpcServerAddrFlagParser(grpcServerAddr *string) func(string) error {
+	return func(flagValue string) error {
+		if flagValue == "" {
+			*grpcServerAddr = flagValue
+			return nil
+		}
+		if err := validateServerAddr(flagValue); err != nil {
+			return err
+		}
+		*grpcServerAddr = flagValue
+		return nil
+	}
+}
+
 func validateServerAddr(v string) error {
 	hp := strings.Split(v, ":")
 	if len(hp) != 2 {
 		return errors.New("server address must be in the format host:post (without specifying a scheme)")
 	}
 	return nil
+}
+
+// getAgentGRPCServerAddr возвращает пустую строку, если gRPC-адрес агента не задан явно.
+//
+// Для агента пустой gRPC-адрес означает, что gRPC-отправка выключена и используется HTTP.
+func getAgentGRPCServerAddr(grpcServerAddrFlag, grpcServerAddrCfgJSON string) (string, error) {
+	grpcServerAddrEnvStr, ok := os.LookupEnv("GRPC_ADDRESS")
+	if !ok && grpcServerAddrFlag != "" {
+		if err := validateServerAddr(grpcServerAddrFlag); err != nil {
+			return "", err
+		}
+		return grpcServerAddrFlag, nil
+	}
+	if !ok && grpcServerAddrCfgJSON != "" {
+		if err := validateServerAddr(grpcServerAddrCfgJSON); err != nil {
+			return "", err
+		}
+		return grpcServerAddrCfgJSON, nil
+	}
+	if !ok || grpcServerAddrEnvStr == "" {
+		return "", nil
+	}
+	if err := validateServerAddr(grpcServerAddrEnvStr); err != nil {
+		return "", err
+	}
+	return grpcServerAddrEnvStr, nil
 }
 
 // GetAgentConfig парсит файл конфигурации/флаги/переменные окружения и возвращает AgentConfig.
@@ -300,6 +385,8 @@ func GetAgentConfig() (AgentConfig, error) {
 	configFileNameFlag := pflag.StringP("config", "c", "", "путь к файлу конфигурации")
 	var serverAddrFlag string
 	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	var grpcServerAddrFlag string
+	pflag.FuncP("grpc-address", "", agentGRPCServerAddrUsage(), grpcServerAddrFlagParser(&grpcServerAddrFlag))
 	reportIntervalFlag := pflag.IntP(reportIntervalFlagName, "r", defaultReportInterval, "частота отправки метрик на сервер (в секундах)")
 	pollIntervalFlag := pflag.IntP(pollIntervalFlagName, "p", defaultPollInterval, "частота опроса метрик из пакета runtime (в секундах)")
 	signatureKeyFlag := pflag.StringP("signature-key", "k", "", "ключ для подписи запросов")
@@ -313,6 +400,10 @@ func GetAgentConfig() (AgentConfig, error) {
 		return cfg, err
 	}
 	serverAddr, err := getServerAddr(serverAddrFlag, cfgJSON.ServerAddr)
+	if err != nil {
+		return cfg, err
+	}
+	grpcServerAddr, err := getAgentGRPCServerAddr(grpcServerAddrFlag, cfgJSON.GRPCServerAddr)
 	if err != nil {
 		return cfg, err
 	}
@@ -332,6 +423,7 @@ func GetAgentConfig() (AgentConfig, error) {
 	}
 
 	cfg.ServerAddr = serverAddr
+	cfg.GRPCServerAddr = grpcServerAddr
 	cfg.ReportInterval = reportInterval
 	cfg.PollInterval = pollInterval
 	cfg.SignatureKey = signatureKey

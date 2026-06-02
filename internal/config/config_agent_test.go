@@ -19,6 +19,8 @@ func TestCanGetAgentConfig_Default(t *testing.T) {
 	os.Args = []string{"agent"}
 	err := os.Unsetenv("ADDRESS")
 	require.NoError(t, err)
+	err = os.Unsetenv("GRPC_ADDRESS")
+	require.NoError(t, err)
 	err = os.Unsetenv("REPORT_INTERVAL")
 	require.NoError(t, err)
 	err = os.Unsetenv("POLL_INTERVAL")
@@ -38,6 +40,7 @@ func TestCanGetAgentConfig_Default(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, defaultServerAddr, cfg.ServerAddr)
+	assert.Equal(t, "", cfg.GRPCServerAddr)
 	assert.Equal(t, convertIntToConfigDuration(defaultPollInterval), cfg.PollInterval)
 	assert.Equal(t, convertIntToConfigDuration(defaultReportInterval), cfg.ReportInterval)
 	assert.Equal(t, "", cfg.SignatureKey)
@@ -53,6 +56,7 @@ func TestCanGetAgentConfig_JSON_FromFlag(t *testing.T) {
 	err := os.WriteFile(configPath, []byte(`
 {
   "address":"localhost:9090",
+  "grpc_address":"localhost:3202",
   "report_interval":"15s",
   "poll_interval":"5s",
   "signature_key":"secret",
@@ -64,6 +68,8 @@ func TestCanGetAgentConfig_JSON_FromFlag(t *testing.T) {
 	os.Args = []string{"agent", "-c", configPath}
 
 	err = os.Unsetenv("ADDRESS")
+	require.NoError(t, err)
+	err = os.Unsetenv("GRPC_ADDRESS")
 	require.NoError(t, err)
 	err = os.Unsetenv("REPORT_INTERVAL")
 	require.NoError(t, err)
@@ -84,6 +90,7 @@ func TestCanGetAgentConfig_JSON_FromFlag(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "localhost:9090", cfg.ServerAddr)
+	assert.Equal(t, "localhost:3202", cfg.GRPCServerAddr)
 	assert.Equal(t, configDuration(15*time.Second), cfg.ReportInterval)
 	assert.Equal(t, configDuration(5*time.Second), cfg.PollInterval)
 	assert.Equal(t, "secret", cfg.SignatureKey)
@@ -100,6 +107,7 @@ func TestCanGetAgentConfig_JSON_FromEnv(t *testing.T) {
 	err := os.WriteFile(configPath, []byte(`
 {
   "address":"localhost:9090",
+  "grpc_address":"localhost:3202",
   "report_interval":"15s",
   "poll_interval":"5s",
   "signature_key":"secret",
@@ -110,6 +118,8 @@ func TestCanGetAgentConfig_JSON_FromEnv(t *testing.T) {
 	require.NoError(t, err)
 
 	err = os.Unsetenv("ADDRESS")
+	require.NoError(t, err)
+	err = os.Unsetenv("GRPC_ADDRESS")
 	require.NoError(t, err)
 	err = os.Unsetenv("REPORT_INTERVAL")
 	require.NoError(t, err)
@@ -130,6 +140,7 @@ func TestCanGetAgentConfig_JSON_FromEnv(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "localhost:9090", cfg.ServerAddr)
+	assert.Equal(t, "localhost:3202", cfg.GRPCServerAddr)
 	assert.Equal(t, configDuration(15*time.Second), cfg.ReportInterval)
 	assert.Equal(t, configDuration(5*time.Second), cfg.PollInterval)
 	assert.Equal(t, "secret", cfg.SignatureKey)
@@ -144,6 +155,7 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 	os.Args = []string{
 		"agent",
 		"-a=127.0.0.1:8081",
+		"--grpc-address=127.0.0.1:3202",
 		"-r=5",
 		"-p=1",
 		"-k=secret",
@@ -151,6 +163,8 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 		"--crypto-key=agent-public.pem",
 	}
 	err := os.Unsetenv("ADDRESS")
+	require.NoError(t, err)
+	err = os.Unsetenv("GRPC_ADDRESS")
 	require.NoError(t, err)
 	err = os.Unsetenv("REPORT_INTERVAL")
 	require.NoError(t, err)
@@ -171,6 +185,7 @@ func TestCanGetAgentConfig_Flag(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1:8081", cfg.ServerAddr)
+	assert.Equal(t, "127.0.0.1:3202", cfg.GRPCServerAddr)
 	assert.Equal(t, convertIntToConfigDuration(5), cfg.ReportInterval)
 	assert.Equal(t, convertIntToConfigDuration(1), cfg.PollInterval)
 	assert.Equal(t, "secret", cfg.SignatureKey)
@@ -184,6 +199,8 @@ func TestCanGetAgentConfig_Env(t *testing.T) {
 	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ExitOnError)
 	os.Args = []string{"agent"}
 	err := os.Setenv("ADDRESS", "127.0.0.1:8081")
+	require.NoError(t, err)
+	err = os.Setenv("GRPC_ADDRESS", "127.0.0.1:3203")
 	require.NoError(t, err)
 	err = os.Setenv("REPORT_INTERVAL", "5")
 	require.NoError(t, err)
@@ -204,6 +221,7 @@ func TestCanGetAgentConfig_Env(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1:8081", cfg.ServerAddr)
+	assert.Equal(t, "127.0.0.1:3203", cfg.GRPCServerAddr)
 	assert.Equal(t, convertIntToConfigDuration(5), cfg.ReportInterval)
 	assert.Equal(t, convertIntToConfigDuration(1), cfg.PollInterval)
 	assert.Equal(t, "everybodyknows", cfg.SignatureKey)
@@ -220,6 +238,7 @@ func TestCanGetAgentConfig_FlagOverJSONPrecedence(t *testing.T) {
 	err := os.WriteFile(configPath, []byte(`
 {
   "address":"localhost:9090",
+  "grpc_address":"localhost:3202",
   "report_interval":"15s",
   "poll_interval":"5s",
   "signature_key":"everybodyknows",
@@ -232,6 +251,7 @@ func TestCanGetAgentConfig_FlagOverJSONPrecedence(t *testing.T) {
 	os.Args = []string{
 		"agent",
 		"-a=127.0.0.1:8081",
+		"--grpc-address=127.0.0.1:3204",
 		"-r=5",
 		"-p=1",
 		"-k=secret",
@@ -240,6 +260,8 @@ func TestCanGetAgentConfig_FlagOverJSONPrecedence(t *testing.T) {
 		"-c=" + configPath,
 	}
 	err = os.Unsetenv("ADDRESS")
+	require.NoError(t, err)
+	err = os.Unsetenv("GRPC_ADDRESS")
 	require.NoError(t, err)
 	err = os.Unsetenv("REPORT_INTERVAL")
 	require.NoError(t, err)
@@ -260,6 +282,7 @@ func TestCanGetAgentConfig_FlagOverJSONPrecedence(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1:8081", cfg.ServerAddr)
+	assert.Equal(t, "127.0.0.1:3204", cfg.GRPCServerAddr)
 	assert.Equal(t, convertIntToConfigDuration(5), cfg.ReportInterval)
 	assert.Equal(t, convertIntToConfigDuration(1), cfg.PollInterval)
 	assert.Equal(t, "secret", cfg.SignatureKey)
@@ -275,6 +298,7 @@ func TestCanGetAgentConfig_EnvOverFlagPrecedence(t *testing.T) {
 	os.Args = []string{
 		"agent",
 		"-a=127.0.0.1:8081",
+		"--grpc-address=127.0.0.1:3204",
 		"-r=5",
 		"-p=1",
 		"-k=secret",
@@ -282,6 +306,8 @@ func TestCanGetAgentConfig_EnvOverFlagPrecedence(t *testing.T) {
 		"-l=15",
 	}
 	err := os.Setenv("ADDRESS", "localhost:8085")
+	require.NoError(t, err)
+	err = os.Setenv("GRPC_ADDRESS", "localhost:3205")
 	require.NoError(t, err)
 	err = os.Setenv("REPORT_INTERVAL", "15")
 	require.NoError(t, err)
@@ -302,6 +328,7 @@ func TestCanGetAgentConfig_EnvOverFlagPrecedence(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "localhost:8085", cfg.ServerAddr)
+	assert.Equal(t, "localhost:3205", cfg.GRPCServerAddr)
 	assert.Equal(t, convertIntToConfigDuration(15), cfg.ReportInterval)
 	assert.Equal(t, convertIntToConfigDuration(3), cfg.PollInterval)
 	assert.Equal(t, "everybodyknows", cfg.SignatureKey)

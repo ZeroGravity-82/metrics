@@ -14,8 +14,6 @@ import (
 )
 
 // FileStorage - персистентное хранилище, которое держит метрики в памяти и при обновлениях сбрасывает их в JSON-файл.
-//
-// Реализует интерфейс handler.Storage.
 type FileStorage struct {
 	MemStorage
 	file *os.File

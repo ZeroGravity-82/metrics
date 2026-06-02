@@ -20,9 +20,15 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
+	pb "zerogravity-82/metrics/internal/proto"
 )
 
 func int64Pointer(v int64) *int64 {
@@ -152,9 +158,9 @@ func TestCopyMetricsAndResetPollCount(t *testing.T) {
 	assert.NotEqual(t, originalMetrics.data["Alloc"], copiedMetrics["Alloc"]) // Изменение копии не влияет на оригинал
 }
 
-// TestSendReport проверяет, что sendReport() отправляет метрики на endpoint `/updates` и при необходимости подписывает
-// запрос.
-func TestSendReport(t *testing.T) {
+// TestSendReportHTTP проверяет, что sendReport() отправляет метрики на endpoint `/updates` и при необходимости
+// подписывает запрос.
+func TestSendReportHTTP(t *testing.T) {
 	// Arrange
 	sentMetrics := newMetrics()
 	sentMetrics.pollMetrics()
@@ -217,11 +223,170 @@ func TestSendReport(t *testing.T) {
 			httpClient := resty.New()
 
 			// Act
-			err := sendReport(server.URL, tt.signatureKey, "", sentMetrics.data, httpClient)
+			err := sendReportHTTP(server.URL, tt.signatureKey, "", sentMetrics.data, httpClient)
 			require.NoError(t, err)
 
 			// Assert
 			assert.Equal(t, len(sentMetrics.data), len(processedMetricIDs))
+		})
+	}
+}
+
+// TestSendReportGRPC проверяет, что sendReportGRPC() отправляет метрики батчем и добавляет IP агента в метаданные.
+func TestSendReportGRPC(t *testing.T) {
+	// Arrange
+	receivedCallCh := make(chan grpcUpdateMetricsCall, 1)
+	server := &testMetricsServer{receivedCallCh: receivedCallCh}
+	addr, client, cleanup := newTestGRPCMetricsClient(t, server)
+	defer cleanup()
+	metrics := map[string]model.Metrics{
+		"PollCount":   {ID: "PollCount", MType: model.Counter, Delta: int64Pointer(7)},
+		"RandomValue": {ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12.5)},
+	}
+
+	// Act
+	err := sendReportGRPC(context.Background(), addr, metrics, client)
+
+	// Assert
+	require.NoError(t, err)
+	var call grpcUpdateMetricsCall
+	select {
+	case call = <-receivedCallCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for gRPC request")
+	}
+	assert.NotEmpty(t, call.md.Get("x-real-ip"))
+	require.NotNil(t, call.req)
+	require.Len(t, call.req.GetMetrics(), 2)
+
+	processedMetricIDs := make([]string, 0, len(call.req.GetMetrics()))
+	receivedMetrics := make(map[string]*pb.Metric)
+	for _, m := range call.req.GetMetrics() {
+		assert.NotContains(t, processedMetricIDs, m.GetId()) // Гарантирует, что каждая метрика отправлена не более одного раза
+		processedMetricIDs = append(processedMetricIDs, m.GetId())
+		receivedMetrics[m.GetId()] = m
+	}
+	require.Contains(t, receivedMetrics, "PollCount")
+	assert.Equal(t, pb.Metric_COUNTER, receivedMetrics["PollCount"].GetType())
+	assert.Equal(t, int64(7), receivedMetrics["PollCount"].GetDelta())
+	require.Contains(t, receivedMetrics, "RandomValue")
+	assert.Equal(t, pb.Metric_GAUGE, receivedMetrics["RandomValue"].GetType())
+	assert.Equal(t, 12.5, receivedMetrics["RandomValue"].GetValue())
+	assert.Equal(t, len(metrics), len(processedMetricIDs))
+}
+
+// TestSendReportGRPC_ClientError проверяет, что sendReportGRPC() возвращает ошибку gRPC-клиента.
+func TestSendReportGRPC_ClientError(t *testing.T) {
+	// Arrange
+	server := &testMetricsServer{err: status.Error(codes.Internal, "server error")}
+	addr, client, cleanup := newTestGRPCMetricsClient(t, server)
+	defer cleanup()
+	metrics := map[string]model.Metrics{
+		"PollCount": {ID: "PollCount", MType: model.Counter, Delta: int64Pointer(1)},
+	}
+
+	// Act
+	err := sendReportGRPC(context.Background(), addr, metrics, client)
+
+	// Assert
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+}
+
+type grpcUpdateMetricsCall struct {
+	req *pb.UpdateMetricsRequest
+	md  metadata.MD
+}
+
+type testMetricsServer struct {
+	pb.UnimplementedMetricsServer
+	receivedCallCh chan<- grpcUpdateMetricsCall
+	err            error
+}
+
+func (s *testMetricsServer) UpdateMetrics(
+	ctx context.Context,
+	req *pb.UpdateMetricsRequest,
+) (*pb.UpdateMetricsResponse, error) {
+	if s.receivedCallCh != nil {
+		md, _ := metadata.FromIncomingContext(ctx)
+		s.receivedCallCh <- grpcUpdateMetricsCall{req: req, md: md}
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &pb.UpdateMetricsResponse{}, nil
+}
+
+func newTestGRPCMetricsClient(t *testing.T, metricsServer pb.MetricsServer) (string, pb.MetricsClient, func()) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	grpcServer := grpc.NewServer()
+	pb.RegisterMetricsServer(grpcServer, metricsServer)
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+
+	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+
+	cleanup := func() {
+		require.NoError(t, conn.Close())
+		grpcServer.Stop()
+	}
+	return listener.Addr().String(), pb.NewMetricsClient(conn), cleanup
+}
+
+// TestBuildProtoMetric проверяет преобразование внутренней модели метрики в protobuf-модель.
+func TestBuildProtoMetric(t *testing.T) {
+	// Arrange
+	tests := []struct {
+		name      string
+		metric    model.Metrics
+		wantType  pb.Metric_MType
+		wantDelta int64
+		wantValue float64
+		wantErr   bool
+	}{
+		{
+			name:      "counter",
+			metric:    model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(3)},
+			wantType:  pb.Metric_COUNTER,
+			wantDelta: 3,
+		},
+		{
+			name:      "gauge",
+			metric:    model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(1.5)},
+			wantType:  pb.Metric_GAUGE,
+			wantValue: 1.5,
+		},
+		{
+			name:    "unsupported type",
+			metric:  model.Metrics{ID: "BrokenMetric", MType: "broken"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			got, err := buildProtoMetric(tt.metric)
+
+			// Assert
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tt.metric.ID, got.GetId())
+			assert.Equal(t, tt.wantType, got.GetType())
+			assert.Equal(t, tt.wantDelta, got.GetDelta())
+			assert.Equal(t, tt.wantValue, got.GetValue())
 		})
 	}
 }

@@ -22,10 +22,14 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/encryption"
 	"zerogravity-82/metrics/internal/model"
+	pb "zerogravity-82/metrics/internal/proto"
 )
 
 type metrics struct {
@@ -200,21 +204,15 @@ func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) {
 		defer ticker.Stop()
 
 		s := NewSemaphore(cfg.RateLimit)
-		const maxRetries = 3
-		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
+		send, cleanup := buildSendFunc(cfg, logger)
+		defer cleanup()
 
 		for {
 			select {
 			case <-ctx.Done():
 				mCopy := m.copyMetrics()
 				if *mCopy["PollCount"].Delta > 0 {
-					if err := sendReport(
-						cfg.ServerAddr,
-						cfg.SignatureKey,
-						cfg.CryptoKeyPath,
-						mCopy,
-						httpClient,
-					); err != nil {
+					if err := send(mCopy); err != nil {
 						logger.Error().Err(err).Msg("Error on sending metrics")
 					}
 				}
@@ -227,13 +225,7 @@ func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) {
 					defer s.Release()
 
 					mCopy := m.copyMetricsAndResetPollCount()
-					if err := sendReport(
-						cfg.ServerAddr,
-						cfg.SignatureKey,
-						cfg.CryptoKeyPath,
-						mCopy,
-						httpClient,
-					); err != nil {
+					if err := send(mCopy); err != nil {
 						logger.Error().Err(err).Msg("Error on sending metrics")
 
 						// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
@@ -245,6 +237,88 @@ func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) {
 		}
 	}()
 	wg.Wait()
+}
+
+type sendFunc func(metrics map[string]model.Metrics) error
+
+func buildSendFunc(cfg config.AgentConfig, logger zerolog.Logger) (sendFunc, func()) {
+	const maxRetries = 3
+	httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
+	send := func(metrics map[string]model.Metrics) error {
+		return sendReportHTTP(cfg.ServerAddr, cfg.SignatureKey, cfg.CryptoKeyPath, metrics, httpClient)
+	}
+	if cfg.GRPCServerAddr == "" {
+		return send, func() {}
+	}
+
+	conn, err := grpc.NewClient(cfg.GRPCServerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		logger.Error().Err(err).Msg("Error on creating gRPC client")
+		return send, func() {}
+	}
+
+	grpcClient := pb.NewMetricsClient(conn)
+	send = func(metrics map[string]model.Metrics) error {
+		return sendReportGRPC(context.Background(), cfg.GRPCServerAddr, metrics, grpcClient)
+	}
+	return send, func() {
+		if err = conn.Close(); err != nil {
+			logger.Error().Err(err).Msg("Error on closing gRPC client connection")
+		}
+	}
+}
+
+func sendReportGRPC(
+	ctx context.Context,
+	serverAddr string,
+	metrics map[string]model.Metrics,
+	client pb.MetricsClient,
+) error {
+	metricsSlice := make([]model.Metrics, 0, len(metrics))
+	for _, v := range metrics {
+		metricsSlice = append(metricsSlice, v)
+	}
+	return sendMetricsGRPC(ctx, serverAddr, metricsSlice, client)
+}
+
+func sendMetricsGRPC(ctx context.Context, serverAddr string, metrics []model.Metrics, client pb.MetricsClient) error {
+	protoMetrics := make([]*pb.Metric, 0, len(metrics))
+	for _, m := range metrics {
+		protoMetric, err := buildProtoMetric(m)
+		if err != nil {
+			return err
+		}
+		protoMetrics = append(protoMetrics, protoMetric)
+	}
+	ip, err := outboundIPFor(serverAddr)
+	if err != nil {
+		return fmt.Errorf("failed to determine local IP address: %w", err)
+	}
+	ctx = metadata.AppendToOutgoingContext(ctx, "x-real-ip", ip)
+	req := pb.UpdateMetricsRequest_builder{Metrics: protoMetrics}.Build()
+	if _, err = client.UpdateMetrics(ctx, req); err != nil {
+		return fmt.Errorf("failed to send metrics via gRPC: %w", err)
+	}
+	return nil
+}
+
+func buildProtoMetric(m model.Metrics) (*pb.Metric, error) {
+	switch m.MType {
+	case model.Counter:
+		var delta int64
+		if m.Delta != nil {
+			delta = *m.Delta
+		}
+		return pb.Metric_builder{Id: m.ID, Type: pb.Metric_COUNTER, Delta: delta}.Build(), nil
+	case model.Gauge:
+		var value float64
+		if m.Value != nil {
+			value = *m.Value
+		}
+		return pb.Metric_builder{Id: m.ID, Type: pb.Metric_GAUGE, Value: value}.Build(), nil
+	default:
+		return nil, fmt.Errorf("unsupported metric type: %s", m.MType)
+	}
 }
 
 func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Duration, error) {
@@ -263,7 +337,7 @@ func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Durati
 	}
 }
 
-func sendReport(
+func sendReportHTTP(
 	serverAddr,
 	signatureKey,
 	cryptoKeyPath string,
@@ -274,13 +348,13 @@ func sendReport(
 	for _, v := range metrics {
 		metricsSlice = append(metricsSlice, v)
 	}
-	if err := sendMetrics(serverAddr, signatureKey, cryptoKeyPath, metricsSlice, httpClient); err != nil {
+	if err := sendMetricsHTTP(serverAddr, signatureKey, cryptoKeyPath, metricsSlice, httpClient); err != nil {
 		return err
 	}
 	return nil
 }
 
-func sendMetrics(
+func sendMetricsHTTP(
 	serverAddr,
 	signatureKey,
 	cryptoKeyPath string,
@@ -331,7 +405,7 @@ func sendMetrics(
 	r.SetHeader("X-Real-IP", ip)
 	_, err = r.Post(urlPath)
 	if err != nil {
-		return fmt.Errorf("failed to send the request: %w", err)
+		return fmt.Errorf("failed to send metrics via HTTP: %w", err)
 	}
 	return nil
 }
@@ -383,12 +457,24 @@ func generateHexEncodedSignature(data []byte, key string) string {
 	return signature
 }
 
+// outboundIPFor определяет локальный IP-адрес, через который агент будет обращаться к целевому серверу.
+//
+// target может быть HTTP URL вида "http://localhost:8080" или gRPC-адресом без схемы вида "localhost:3201".
 func outboundIPFor(target string) (string, error) {
-	u, err := url.Parse(target)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse URL: %w", err)
+	targetAddr := target
+	// Для HTTP URL адрес лежит в u.Host, а gRPC передает обычный host:port без схемы.
+	if strings.Contains(target, "://") {
+		u, err := url.Parse(target)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse URL: %w", err)
+		}
+		targetAddr = u.Host
 	}
-	conn, err := net.Dial("udp", u.Hostname()+":"+u.Port())
+	// Проверяем, что после нормализации остался адрес в формате host:port, пригодный для net.Dial.
+	if _, _, err := net.SplitHostPort(targetAddr); err != nil {
+		return "", fmt.Errorf("failed to parse target host and port: %w", err)
+	}
+	conn, err := net.Dial("udp", targetAddr)
 	if err != nil {
 		return "", err
 	}

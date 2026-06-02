@@ -17,8 +17,6 @@ import (
 )
 
 // DBStorage - персистентное хранилище метрик на PostgreSQL.
-//
-// Реализует интерфейс handler.Storage.
 type DBStorage struct {
 	db *sqlx.DB
 }

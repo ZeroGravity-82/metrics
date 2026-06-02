@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"zerogravity-82/metrics/internal/httpserver/handler"
+	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/service/audit"
 )
 
@@ -18,12 +19,21 @@ const (
 	shutdownTimeout   = 10 * time.Second
 )
 
+// Storage абстрагирует хранилище метрик.
+type Storage interface {
+	UpdateMetric(ctx context.Context, m model.Metrics) error
+	UpdateMetrics(ctx context.Context, metrics []model.Metrics) error
+	GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error)
+	GetAll(ctx context.Context) (map[string]model.Metrics, error)
+	Ping(ctx context.Context) error
+}
+
 // HTTPServer - основной API-сервер сервиса метрик.
 //
 // Он запускает роутер, собранный handler.MetricRouter, на указанном адресе.
 type HTTPServer struct {
 	addr           string
-	storage        handler.Storage
+	storage        Storage
 	auditPublisher *audit.AsyncPublisher
 	signatureKey   string
 	cryptoKeyPath  string
@@ -34,7 +44,7 @@ type HTTPServer struct {
 // NewHTTPServer создает новый HTTPServer.
 func NewHTTPServer(
 	addr string,
-	storage handler.Storage,
+	storage Storage,
 	auditPublisher *audit.AsyncPublisher,
 	signatureKey string,
 	cryptoKeyPath string,

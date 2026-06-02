@@ -16,23 +16,19 @@ import (
 
 	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/repository"
-	"zerogravity-82/metrics/internal/service/audit"
 )
 
-// Storage абстрагирует хранилище метрик, используемое хендлерами.
+// Storage абстрагирует хранилище метрик.
 type Storage interface {
 	UpdateMetric(ctx context.Context, m model.Metrics) error
 	UpdateMetrics(ctx context.Context, metrics []model.Metrics) error
 	GetMetric(ctx context.Context, mType, mName string) (model.Metrics, error)
 	GetAll(ctx context.Context) (map[string]model.Metrics, error)
 	Ping(ctx context.Context) error
-	Close() error
 }
 
 // AuditPublisher публикует события аудита об успешных обновлениях метрик.
 type AuditPublisher interface {
-	Register(observers ...audit.Observer)
-	Deregister(observer audit.Observer) error
 	PublishLog(ctx context.Context, now time.Time, ip string, models ...model.Metrics)
 }
 

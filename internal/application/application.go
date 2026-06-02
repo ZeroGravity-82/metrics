@@ -15,20 +15,26 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"zerogravity-82/metrics/internal/config"
+	"zerogravity-82/metrics/internal/grpcserver"
 	"zerogravity-82/metrics/internal/httpserver"
-	"zerogravity-82/metrics/internal/httpserver/handler"
 	"zerogravity-82/metrics/internal/repository"
 	"zerogravity-82/metrics/internal/service/audit"
 )
 
-// Application связывает конфигурацию, хранилище, аудитора запросов и HTTP-сервера в единый сервис.
+// Storage абстрагирует хранилище метрик.
+type Storage interface {
+	Close() error
+}
+
+// Application связывает конфигурацию, хранилище, аудитора запросов и HTTP/gRPC-сервера в единый сервис.
 //
 // Используется в cmd/server для сборки и запуска сервиса.
 type Application struct {
 	logger         zerolog.Logger
 	cfg            config.ServerConfig
-	storage        handler.Storage
+	storage        Storage
 	httpSrv        *httpserver.HTTPServer
+	grpcSrv        *grpcserver.GRPCServer
 	pprofSrv       *httpserver.PprofServer
 	auditPublisher *audit.AsyncPublisher
 }
@@ -40,7 +46,12 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 		return nil, fmt.Errorf("config error: %w", err)
 	}
 
-	var storage handler.Storage
+	type metricStorage interface {
+		Storage
+		httpserver.Storage
+		grpcserver.Storage
+	}
+	var storage metricStorage
 	switch true {
 	case cfg.DatabaseDSN != "":
 		var db *sqlx.DB
@@ -74,6 +85,7 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 		cfg.TrustedSubnet,
 		logger,
 	)
+	grpcSrv := grpcserver.NewGRPCServer(cfg.GRPCServerAddr, storage, publisher, cfg.TrustedSubnet, logger)
 	pprofSrv := httpserver.NewPprofServer(cfg.PprofAddr, logger)
 
 	return &Application{
@@ -81,6 +93,7 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 		cfg:            cfg,
 		storage:        storage,
 		httpSrv:        httpSrv,
+		grpcSrv:        grpcSrv,
 		pprofSrv:       pprofSrv,
 		auditPublisher: publisher,
 	}, nil
@@ -123,6 +136,9 @@ func (app *Application) runServers(ctx context.Context) <-chan error {
 	eg, groupCtx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
 		return app.httpSrv.Run(groupCtx)
+	})
+	eg.Go(func() error {
+		return app.grpcSrv.Run(groupCtx)
 	})
 	eg.Go(func() error {
 		return app.pprofSrv.Run(groupCtx)
