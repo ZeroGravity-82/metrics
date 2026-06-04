@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"time"
-	"zerogravity-82/metrics/internal/repository"
 
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc/codes"
@@ -13,6 +12,7 @@ import (
 
 	"zerogravity-82/metrics/internal/model"
 	pb "zerogravity-82/metrics/internal/proto"
+	"zerogravity-82/metrics/internal/repository"
 )
 
 // Storage абстрагирует хранилище метрик.
