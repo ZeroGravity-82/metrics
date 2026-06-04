@@ -29,7 +29,6 @@ func BenchmarkAsyncPublisher_convertMetricsToAuditLog(b *testing.B) {
 		metrics = append(metrics, model.Metrics{ID: "m" + strconv.Itoa(i), MType: model.Gauge, Value: &v})
 		metrics = append(metrics, model.Metrics{ID: "c" + strconv.Itoa(i), MType: model.Counter, Delta: &d})
 	}
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -53,7 +52,6 @@ func BenchmarkAsyncPublisher_PublishLog(b *testing.B) {
 		metrics = append(metrics, model.Metrics{ID: "m" + strconv.Itoa(i), MType: model.Gauge, Value: &v})
 		metrics = append(metrics, model.Metrics{ID: "c" + strconv.Itoa(i), MType: model.Counter, Delta: &d})
 	}
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {

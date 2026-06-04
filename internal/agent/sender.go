@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -27,6 +28,8 @@ import (
 	"zerogravity-82/metrics/internal/encryption"
 	"zerogravity-82/metrics/internal/model"
 )
+
+const requestTimeout = 10 * time.Second
 
 type metrics struct {
 	mu   sync.Mutex
@@ -208,26 +211,40 @@ func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) {
 			case <-ctx.Done():
 				mCopy := m.copyMetrics()
 				if *mCopy["PollCount"].Delta > 0 {
+					shutdownCtx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+					defer cancel()
+
 					if err := sendReport(
+						shutdownCtx,
 						cfg.ServerAddr,
 						cfg.SignatureKey,
 						cfg.CryptoKeyPath,
 						mCopy,
 						httpClient,
-					); err != nil {
+					); err != nil && !errors.Is(err, context.Canceled) {
 						logger.Error().Err(err).Msg("Error on sending metrics")
 					}
 				}
 				return
 			case <-ticker.C:
+				select {
+				case <-ctx.Done(): // Защита на случай одновременной отмены контекста и срабатывания тикера.
+					continue
+				default:
+				}
+
 				s.Acquire()
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
 					defer s.Release()
 
+					requestCtx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+					defer cancel()
+
 					mCopy := m.copyMetricsAndResetPollCount()
 					if err := sendReport(
+						requestCtx,
 						cfg.ServerAddr,
 						cfg.SignatureKey,
 						cfg.CryptoKeyPath,
@@ -264,6 +281,7 @@ func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Durati
 }
 
 func sendReport(
+	ctx context.Context,
 	serverAddr,
 	signatureKey,
 	cryptoKeyPath string,
@@ -274,20 +292,21 @@ func sendReport(
 	for _, v := range metrics {
 		metricsSlice = append(metricsSlice, v)
 	}
-	if err := sendMetrics(serverAddr, signatureKey, cryptoKeyPath, metricsSlice, httpClient); err != nil {
+	if err := sendMetrics(ctx, serverAddr, signatureKey, cryptoKeyPath, metricsSlice, httpClient); err != nil {
 		return err
 	}
 	return nil
 }
 
 func sendMetrics(
+	ctx context.Context,
 	serverAddr,
 	signatureKey,
 	cryptoKeyPath string,
 	metrics []model.Metrics,
 	httpClient *resty.Client,
 ) error {
-	const xEncryptedHeader = "aes-gcm+rsa-oaep-sha256"
+	const xEncryptedHeaderValue = "aes-gcm+rsa-oaep-sha256"
 
 	jsonBz, err := marshal(metrics)
 	if err != nil {
@@ -314,15 +333,16 @@ func sendMetrics(
 		return fmt.Errorf("failed to build URL: %w", err)
 	}
 	r := httpClient.R().
+		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
 		SetBody(bodyBz)
 	if signatureKey != "" {
-		r.SetHeader("HashSHA256", fmt.Sprintf("%s", generateHexEncodedSignature(jsonBz, signatureKey)))
+		r.SetHeader("HashSHA256", generateHexEncodedSignature(jsonBz, signatureKey))
 	}
 	if cryptoKeyPath != "" {
-		r.SetHeader("X-Encrypted", xEncryptedHeader)
-		r.SetHeader("X-Encrypted-Key", base64.StdEncoding.EncodeToString(encryptedKeyBz))
+		r.SetHeader(encryption.XEncryptedHeaderName, xEncryptedHeaderValue)
+		r.SetHeader(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString(encryptedKeyBz))
 	}
 	ip, err := outboundIPFor(serverAddr)
 	if err != nil {

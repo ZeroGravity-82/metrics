@@ -151,7 +151,7 @@ func TestAsyncPublisher_PublishLog_IgnoresEventsAfterShutdownStarts(t *testing.T
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
-		p.Shutdown()
+		p.Shutdown(context.Background())
 	}()
 
 	// Arrange
@@ -189,17 +189,16 @@ func TestAsyncPublisher_Shutdown_DrainsQueueAndWaitsForObservers(t *testing.T) {
 	}
 	p := NewAsyncPublisher(zerolog.Nop(), observer)
 
-	runDone := make(chan struct{})
+	runDone := make(chan error, 1)
 	go func() {
-		defer close(runDone)
-		p.Run()
+		runDone <- p.Run()
 	}()
 
 	p.PublishLog(context.Background(), time.Unix(1, 0), "127.0.0.1:1234", model.Metrics{ID: "m1"})
 	p.PublishLog(context.Background(), time.Unix(2, 0), "127.0.0.1:1234", model.Metrics{ID: "m2"})
 
 	// Act
-	p.Shutdown()
+	p.Shutdown(context.Background())
 
 	// Assert
 	received := map[int64]struct{}{}
@@ -214,8 +213,63 @@ func TestAsyncPublisher_Shutdown_DrainsQueueAndWaitsForObservers(t *testing.T) {
 	}
 
 	select { // После завершения drain фоновой воркер должен корректно остановиться.
-	case <-runDone:
+	case err := <-runDone:
+		require.NoError(t, err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("publisher did not stop after shutdown")
 	}
+}
+
+// TestAsyncPublisher_Shutdown_StopsWaitingOnContextTimeout проверяет, что Shutdown() прекращает ожидание зависшего
+// observer после истечения дедлайна контекста.
+func TestAsyncPublisher_Shutdown_StopsWaitingOnContextTimeout(t *testing.T) {
+	// Arrange
+	observerStarted := make(chan struct{})
+	observerRelease := make(chan struct{})
+	var observerStartedOnce sync.Once
+	observer := &testObserver{ // Наблюдатель зависает, пока его явно не отпустят, либо пока не отменится контекст.
+		fn: func(ctx context.Context, _ model.AuditLog) error {
+			observerStartedOnce.Do(func() {
+				close(observerStarted)
+			})
+			select {
+			case <-observerRelease:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}
+	p := NewAsyncPublisher(zerolog.Nop(), observer)
+
+	runDone := make(chan error, 1)
+	go func() { // Запускаем Run() в отдельной горутине, чтобы проверить, что он завершится по таймауту контекста.
+		runDone <- p.Run()
+	}()
+
+	p.PublishLog(context.Background(), time.Unix(1, 0), "127.0.0.1:1234", model.Metrics{ID: "m1"})
+	require.Eventually(t, func() bool { // Дожидаемся, пока observer действительно начал обработку события.
+		select {
+		case <-observerStarted:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	// Act
+	p.Shutdown(shutdownCtx) // Запускаем остановку с коротким таймаутом: паблишер прекращает ждать зависший наблюдатель.
+
+	// Assert
+	select {
+	case err := <-runDone:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(2 * time.Second):
+		t.Fatal("publisher did not stop after shutdown timeout")
+	}
+
+	close(observerRelease) // Освобождаем наблюдателя, чтобы после теста не оставлять зависшую горутину.
 }
