@@ -245,7 +245,7 @@ func TestSendReportGRPC(t *testing.T) {
 	}
 
 	// Act
-	err := sendReportGRPC(context.Background(), addr, metrics, client)
+	err := sendReportGRPC(addr, metrics, client)
 
 	// Assert
 	require.NoError(t, err)
@@ -286,7 +286,7 @@ func TestSendReportGRPC_ClientError(t *testing.T) {
 	}
 
 	// Act
-	err := sendReportGRPC(context.Background(), addr, metrics, client)
+	err := sendReportGRPC(addr, metrics, client)
 
 	// Assert
 	require.Error(t, err)

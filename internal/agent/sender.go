@@ -32,6 +32,8 @@ import (
 	pb "zerogravity-82/metrics/internal/proto"
 )
 
+const requestTimeout = 10 * time.Second
+
 type metrics struct {
 	mu   sync.Mutex
 	data map[string]model.Metrics
@@ -204,6 +206,7 @@ func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) {
 		defer ticker.Stop()
 
 		s := NewSemaphore(cfg.RateLimit)
+
 		send, cleanup := buildSendFunc(cfg, logger)
 		defer cleanup()
 
@@ -218,6 +221,12 @@ func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) {
 				}
 				return
 			case <-ticker.C:
+				select {
+				case <-ctx.Done(): // Защита на случай одновременной отмены контекста и срабатывания тикера.
+					continue
+				default:
+				}
+
 				s.Acquire()
 				wg.Add(1)
 				go func() {
@@ -259,7 +268,7 @@ func buildSendFunc(cfg config.AgentConfig, logger zerolog.Logger) (sendFunc, fun
 
 	grpcClient := pb.NewMetricsClient(conn)
 	send = func(metrics map[string]model.Metrics) error {
-		return sendReportGRPC(context.Background(), cfg.GRPCServerAddr, metrics, grpcClient)
+		return sendReportGRPC(cfg.GRPCServerAddr, metrics, grpcClient)
 	}
 	return send, func() {
 		if err = conn.Close(); err != nil {
@@ -269,7 +278,6 @@ func buildSendFunc(cfg config.AgentConfig, logger zerolog.Logger) (sendFunc, fun
 }
 
 func sendReportGRPC(
-	ctx context.Context,
 	serverAddr string,
 	metrics map[string]model.Metrics,
 	client pb.MetricsClient,
@@ -278,10 +286,13 @@ func sendReportGRPC(
 	for _, v := range metrics {
 		metricsSlice = append(metricsSlice, v)
 	}
-	return sendMetricsGRPC(ctx, serverAddr, metricsSlice, client)
+	return sendMetricsGRPC(serverAddr, metricsSlice, client)
 }
 
-func sendMetricsGRPC(ctx context.Context, serverAddr string, metrics []model.Metrics, client pb.MetricsClient) error {
+func sendMetricsGRPC(serverAddr string, metrics []model.Metrics, client pb.MetricsClient) error {
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+
 	protoMetrics := make([]*pb.Metric, 0, len(metrics))
 	for _, m := range metrics {
 		protoMetric, err := buildProtoMetric(m)
@@ -361,7 +372,10 @@ func sendMetricsHTTP(
 	metrics []model.Metrics,
 	httpClient *resty.Client,
 ) error {
-	const xEncryptedHeader = "aes-gcm+rsa-oaep-sha256"
+	const xEncryptedHeaderValue = "aes-gcm+rsa-oaep-sha256"
+
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
 
 	jsonBz, err := marshal(metrics)
 	if err != nil {
@@ -388,15 +402,16 @@ func sendMetricsHTTP(
 		return fmt.Errorf("failed to build URL: %w", err)
 	}
 	r := httpClient.R().
+		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
 		SetBody(bodyBz)
 	if signatureKey != "" {
-		r.SetHeader("HashSHA256", fmt.Sprintf("%s", generateHexEncodedSignature(jsonBz, signatureKey)))
+		r.SetHeader("HashSHA256", generateHexEncodedSignature(jsonBz, signatureKey))
 	}
 	if cryptoKeyPath != "" {
-		r.SetHeader("X-Encrypted", xEncryptedHeader)
-		r.SetHeader("X-Encrypted-Key", base64.StdEncoding.EncodeToString(encryptedKeyBz))
+		r.SetHeader(encryption.XEncryptedHeaderName, xEncryptedHeaderValue)
+		r.SetHeader(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString(encryptedKeyBz))
 	}
 	ip, err := outboundIPFor(serverAddr)
 	if err != nil {

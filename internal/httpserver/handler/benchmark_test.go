@@ -84,13 +84,15 @@ func BenchmarkSigningResponseWriter_CalculateSignature(b *testing.B) {
 	inner := newDiscardResponseWriter()
 	key := "secret"
 	logger := zerolog.Nop()
-	writer := newSigningResponseWriter(inner, key, logger)
 	data := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
-	sinkInt, sinkErr = writer.Write(data)
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
+		b.StopTimer()
+		writer := newSigningResponseWriter(inner, key, logger)
+		sinkInt, sinkErr = writer.Write(data)
+		b.StartTimer()
+
 		writer.WriteHeader(http.StatusOK)
 	}
 }
@@ -100,7 +102,6 @@ func BenchmarkMetricRouter_validateSignature(b *testing.B) {
 	body := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
 	signatureKey := "secret"
 	sig := hex.EncodeToString(generateSignature(body, signatureKey))
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -110,14 +111,12 @@ func BenchmarkMetricRouter_validateSignature(b *testing.B) {
 
 func BenchmarkMetricRouter_buildMetric(b *testing.B) {
 	b.Run("gauge metric", func(b *testing.B) {
-		b.ResetTimer()
 		// Measure
 		for b.Loop() {
 			sinkMetric, sinkErr = buildMetric(model.Gauge, "RandomValue", "123.45")
 		}
 	})
 	b.Run("counter metric", func(b *testing.B) {
-		b.ResetTimer()
 		// Measure
 		for b.Loop() {
 			sinkMetric, sinkErr = buildMetric(model.Counter, "PollCount", "777")
@@ -134,15 +133,17 @@ func BenchmarkMetricRouter_UpdateRoute(b *testing.B) {
 	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, cryptoKeyPath, trustedSubnet, logger)
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
+		b.StopTimer()
 		req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(payload))
 		req.Header.Set("Content-Type", "application/json")
-
 		w := newDiscardResponseWriter()
+		b.StartTimer()
+
 		r.ServeHTTP(w, req)
+
 		sinkInt = w.statusCode
 	}
 }
@@ -157,16 +158,17 @@ func BenchmarkMetricRouter_UpdateRoute_GzipIn_GzipOut(b *testing.B) {
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
 	gzPayload := gzipBody(payload)
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
+		b.StopTimer()
 		req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(gzPayload))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
-
 		w := newDiscardResponseWriter()
+		b.StartTimer()
+
 		r.ServeHTTP(w, req)
 		sinkInt = w.statusCode
 	}
@@ -190,15 +192,16 @@ func BenchmarkMetricRouter_UpdateRoute_WithSignature(b *testing.B) {
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
 	sig := hex.EncodeToString(generateSignature(payload, signatureKey))
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
+		b.StopTimer()
 		req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(payload))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("HashSHA256", sig)
-
 		w := newDiscardResponseWriter()
+		b.StartTimer()
+
 		r.ServeHTTP(w, req)
 		sinkInt = w.statusCode
 	}
@@ -217,16 +220,17 @@ func BenchmarkMetricRouter_UpdateRoute_WithEncryption(b *testing.B) {
 	if err != nil {
 		b.Fatalf("failed to encrypt payload: %v", err)
 	}
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
+		b.StopTimer()
 		req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(encryptedData))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Encrypted", "aes-gcm+rsa-oaep-sha256")
-		req.Header.Set("X-Encrypted-Key", base64.StdEncoding.EncodeToString(encryptedKey))
-
+		req.Header.Set(encryption.XEncryptedHeaderName, "aes-gcm+rsa-oaep-sha256")
+		req.Header.Set(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString(encryptedKey))
 		w := newDiscardResponseWriter()
+		b.StartTimer()
+
 		r.ServeHTTP(w, req)
 		sinkInt = w.statusCode
 	}

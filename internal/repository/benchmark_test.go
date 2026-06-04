@@ -22,7 +22,6 @@ func BenchmarkMemStorage_UpdateMetric(b *testing.B) {
 
 	d := int64(1)
 	m := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: &d}
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -42,7 +41,6 @@ func BenchmarkMemStorage_UpdateMetrics(b *testing.B) {
 		metrics = append(metrics, model.Metrics{ID: "m" + strconv.Itoa(i), MType: model.Gauge, Value: &v})
 		metrics = append(metrics, model.Metrics{ID: "c" + strconv.Itoa(i), MType: model.Counter, Delta: &d})
 	}
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -65,7 +63,6 @@ func BenchmarkMemStorage_GetMetric(b *testing.B) {
 	sinkErr = ms.UpdateMetrics(ctx, metrics)
 	v := float64(123.45)
 	sinkErr = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &v})
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -89,7 +86,6 @@ func BenchmarkFileStorage_UpdateMetric(b *testing.B) {
 
 	v := float64(123.45)
 	m := model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &v}
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -118,7 +114,6 @@ func BenchmarkFileStorage_UpdateMetrics(b *testing.B) {
 		metrics = append(metrics, model.Metrics{ID: "m" + strconv.Itoa(i), MType: model.Gauge, Value: &v})
 		metrics = append(metrics, model.Metrics{ID: "c" + strconv.Itoa(i), MType: model.Counter, Delta: &d})
 	}
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -150,7 +145,6 @@ func BenchmarkFileStorage_GetMetric(b *testing.B) {
 	sinkErr = fs.UpdateMetrics(ctx, metrics)
 	v := float64(123.45)
 	sinkErr = fs.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: &v})
-	b.ResetTimer()
 
 	// Measure
 	for b.Loop() {
@@ -179,16 +173,17 @@ func BenchmarkFileStorage_RestoreMetrics(b *testing.B) {
 	}
 	_ = fs.Close()
 
-	b.ResetTimer()
-
 	// Measure
 	for b.Loop() {
+		b.StopTimer()
 		// #nosec G304 -- path is from b.TempDir(), not user input
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 		if err != nil {
 			b.Fatalf("open failed: %v", err)
 		}
 		metricsMap := make(map[string]model.Metrics, 100)
+		b.StartTimer()
+
 		sinkErr = restoreMetrics(metricsMap, f)
 		_ = f.Close()
 	}
