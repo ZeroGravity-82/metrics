@@ -53,7 +53,7 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 		grpcserver.Storage
 	}
 	var storage metricStorage
-	switch true {
+	switch {
 	case cfg.DatabaseDSN != "":
 		var db *sqlx.DB
 		db, err = sqlx.Connect("pgx", cfg.DatabaseDSN)

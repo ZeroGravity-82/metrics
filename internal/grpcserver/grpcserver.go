@@ -76,7 +76,7 @@ func withTrustedSubnet(trustedSubnetStr string, logger zerolog.Logger) grpc.Serv
 			return handler(ctx, req)
 		}
 		if trustedSubnet == nil {
-			return nil, status.Error(codes.Unknown, "Internal server error")
+			return nil, status.Error(codes.Internal, "Internal server error")
 		}
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {

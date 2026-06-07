@@ -133,7 +133,7 @@ func TestMetricsService_UpdateMetrics_MapsStorageErrorsToGRPCCodes(t *testing.T)
 		{
 			name:     "unexpected storage error",
 			err:      errors.New("database is unavailable"),
-			wantCode: codes.Unknown,
+			wantCode: codes.Internal,
 		},
 	}
 

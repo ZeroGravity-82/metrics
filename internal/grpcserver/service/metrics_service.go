@@ -79,7 +79,7 @@ func (m *MetricsService) UpdateMetrics(
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		logError(err, "Update metrics error", m.logger)
-		return nil, status.Error(codes.Unknown, "Internal Server Error")
+		return nil, status.Error(codes.Internal, "Internal Server Error")
 	}
 
 	var remoteAddr string
