@@ -971,7 +971,7 @@ func TestMetricRouter_TrustedSubnet(t *testing.T) {
 }
 
 func newMetricRouterTrustedSubnetRequest(t *testing.T, trustedSubnet, realIP string) (*http.Response, string) {
-	t.Helper()
+	t.Helper() // нужен, чтобы место ошибки require.NoError отображалось в тестовых функциях, а не в этом хелпере.
 
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()

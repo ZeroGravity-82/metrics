@@ -6,12 +6,16 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
@@ -37,6 +41,28 @@ func int64Pointer(v int64) *int64 {
 
 func float64Pointer(v float64) *float64 {
 	return &v
+}
+
+func newTLSServerWithAgentCA(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper() // нужен, чтобы место ошибки require.NoError отображалось в тестовых функциях, а не в этом хелпере.
+
+	server := httptest.NewTLSServer(handler)
+	t.Cleanup(server.Close)
+
+	require.NotEmpty(t, server.TLS.Certificates)
+	require.NotEmpty(t, server.TLS.Certificates[0].Certificate)
+
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.MkdirAll("certs", 0o755))
+
+	caCertPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: server.TLS.Certificates[0].Certificate[0],
+	})
+	require.NotNil(t, caCertPEM)
+	require.NoError(t, os.WriteFile("certs/ca.crt", caCertPEM, 0o600))
+
+	return server
 }
 
 // TestPollMetrics проверяет, что pollMetrics() собирает райнтайм-метрики и счетчик опросов.
@@ -319,18 +345,32 @@ func (s *testMetricsServer) UpdateMetrics(
 }
 
 func newTestGRPCMetricsClient(t *testing.T, metricsServer pb.MetricsServer) (string, pb.MetricsClient, func()) {
-	t.Helper()
+	t.Helper() // нужен, чтобы место ошибки require.NoError отображалось в тестовых функциях, а не в этом хелпере.
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	grpcServer := grpc.NewServer()
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	tlsServer.Close()
+	require.NotEmpty(t, tlsServer.TLS.Certificates)
+	require.NotEmpty(t, tlsServer.TLS.Certificates[0].Certificate)
+
+	serverCredentials := credentials.NewTLS(&tls.Config{
+		Certificates: tlsServer.TLS.Certificates,
+	})
+	grpcServer := grpc.NewServer(grpc.Creds(serverCredentials))
 	pb.RegisterMetricsServer(grpcServer, metricsServer)
 	go func() {
 		_ = grpcServer.Serve(listener)
 	}()
 
-	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	caPool := x509.NewCertPool()
+	require.True(t, caPool.AppendCertsFromPEM(pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: tlsServer.TLS.Certificates[0].Certificate[0],
+	})))
+	clientCredentials := credentials.NewTLS(&tls.Config{RootCAs: caPool})
+	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(clientCredentials))
 	require.NoError(t, err)
 
 	cleanup := func() {
@@ -436,12 +476,12 @@ func TestAddDefaultSchema(t *testing.T) {
 		{
 			name:          "localhost",
 			inputURL:      "localhost:8081",
-			wantResultURL: "http://localhost:8081",
+			wantResultURL: "https://localhost:8081",
 		},
 		{
 			name:          "port only",
 			inputURL:      ":8081",
-			wantResultURL: "http://localhost:8081",
+			wantResultURL: "https://localhost:8081",
 		},
 		{
 			name:          "regular IP address",
@@ -509,7 +549,7 @@ func TestRun_GracefulShutdown_FlushesPendingMetrics(t *testing.T) {
 	// Arrange
 	var requestCount atomic.Int32
 	receivedMetricsCh := make(chan []model.Metrics, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTLSServerWithAgentCA(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount.Add(1)
 
 		zr, err := gzip.NewReader(r.Body)
@@ -525,7 +565,6 @@ func TestRun_GracefulShutdown_FlushesPendingMetrics(t *testing.T) {
 
 		receivedMetricsCh <- receivedMetrics
 	}))
-	defer server.Close()
 
 	cfg := mustAgentConfigForTest(t, server.URL, "1h", "50ms", 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -533,9 +572,10 @@ func TestRun_GracefulShutdown_FlushesPendingMetrics(t *testing.T) {
 
 	// Act
 	runDone := make(chan struct{})
+	runErrCh := make(chan error, 1)
 	go func() {
 		defer close(runDone)
-		Run(ctx, cfg, zerolog.Nop())
+		runErrCh <- Run(ctx, cfg, zerolog.Nop())
 	}()
 
 	time.Sleep(200 * time.Millisecond) // Даем агенту время накопить метрики, но не дойти до штатного ReportInterval.
@@ -546,6 +586,7 @@ func TestRun_GracefulShutdown_FlushesPendingMetrics(t *testing.T) {
 	// Assert
 	select {
 	case <-runDone:
+		require.NoError(t, <-runErrCh)
 	case <-time.After(3 * time.Second):
 		t.Fatal("agent did not stop after context cancellation")
 	}
@@ -578,6 +619,7 @@ func mustAgentConfigForTest(
 `)
 	var cfg config.AgentConfig
 	require.NoError(t, json.Unmarshal(cfgJSON, &cfg))
+	cfg.CACertPath = "certs/ca.crt"
 	cfg.RateLimit = rateLimit
 	return cfg
 }
@@ -589,13 +631,12 @@ func TestRun_GracefulShutdown_WaitsForInFlightSend(t *testing.T) {
 	requestStarted := make(chan struct{})
 	releaseResponse := make(chan struct{})
 	var requestStartedOnce atomic.Bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTLSServerWithAgentCA(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if requestStartedOnce.CompareAndSwap(false, true) {
 			close(requestStarted)
 		}
 		<-releaseResponse
 	}))
-	defer server.Close()
 
 	cfg := mustAgentConfigForTest(t, server.URL, "50ms", "10ms", 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -603,9 +644,10 @@ func TestRun_GracefulShutdown_WaitsForInFlightSend(t *testing.T) {
 
 	// Act
 	runDone := make(chan struct{})
+	runErrCh := make(chan error, 1)
 	go func() {
 		defer close(runDone)
-		Run(ctx, cfg, zerolog.Nop())
+		runErrCh <- Run(ctx, cfg, zerolog.Nop())
 	}()
 
 	select {
@@ -618,6 +660,7 @@ func TestRun_GracefulShutdown_WaitsForInFlightSend(t *testing.T) {
 
 	select {
 	case <-runDone:
+		require.NoError(t, <-runErrCh)
 		t.Fatal("agent stopped before in-flight request completed")
 	case <-time.After(150 * time.Millisecond):
 	}
@@ -627,6 +670,7 @@ func TestRun_GracefulShutdown_WaitsForInFlightSend(t *testing.T) {
 	// Assert
 	select {
 	case <-runDone:
+		require.NoError(t, <-runErrCh)
 	case <-time.After(3 * time.Second):
 		t.Fatal("agent did not wait for in-flight request")
 	}

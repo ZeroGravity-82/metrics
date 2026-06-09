@@ -16,8 +16,11 @@ import (
 )
 
 const (
-	defaultServerAddr     = "localhost:8080"
+	defaultHTTPServerAddr = "localhost:8080"
 	defaultGRPCServerAddr = "localhost:3201"
+	defaultTLSCertPath    = "certs/server.crt"
+	defaultTLSKeyPath     = "certs/server.key"
+	defaultCACertPath     = "certs/ca.crt"
 	defaultReportInterval = 10
 	defaultPollInterval   = 2
 	defaultStoreInterval  = 300
@@ -27,9 +30,11 @@ const (
 
 // AgentConfig описывает конфигурацию агента.
 //
-// ServerAddr - адрес сервера метрик в формате host:port.
+// HTTPServerAddr - адрес HTTP-сервера метрик в формате host:port.
 //
 // GRPCServerAddr - адрес gRPC-сервера в формате host:port.
+//
+// CACertPath - путь к CA-сертификату для проверки TLS-сертификата сервера.
 //
 // ReportInterval - периодичность отправки метрик на сервер.
 //
@@ -41,8 +46,9 @@ const (
 //
 // RateLimit - ограничение на число одновременно исходящих запросов агента.
 type AgentConfig struct {
-	ServerAddr     string         `json:"address"`
+	HTTPServerAddr string         `json:"address"`
 	GRPCServerAddr string         `json:"grpc_address"`
+	CACertPath     string         `json:"ca_cert"`
 	ReportInterval configDuration `json:"report_interval"`
 	PollInterval   configDuration `json:"poll_interval"`
 	SignatureKey   string         `json:"signature_key"`
@@ -52,9 +58,13 @@ type AgentConfig struct {
 
 // ServerConfig описывает конфигурацию сервера метрик.
 //
-// ServerAddr - адрес HTTP-сервера в формате host:port.
+// HTTPServerAddr - адрес HTTP-сервера в формате host:port.
 //
 // GRPCServerAddr - адрес gRPC-сервера в формате host:port.
+//
+// TLSCertPath - путь к TLS-сертификату HTTP/gRPC-серверов.
+//
+// TLSKeyPath - путь к приватному TLS-ключу HTTP/gRPC-серверов.
 //
 // StoreInterval - периодичность сохранения метрик на диск.
 //
@@ -76,8 +86,10 @@ type AgentConfig struct {
 //
 // TrustedSubnet - CIDR доверенной подсети (опционально).
 type ServerConfig struct {
-	ServerAddr      string         `json:"address"`
+	HTTPServerAddr  string         `json:"address"`
 	GRPCServerAddr  string         `json:"grpc_address"`
+	TLSCertPath     string         `json:"tls_cert"`
+	TLSKeyPath      string         `json:"tls_key"`
 	StoreInterval   configDuration `json:"store_interval"`
 	FileStoragePath string         `json:"store_file"`
 	Restore         bool           `json:"restore"`
@@ -98,10 +110,12 @@ func GetServerConfig() (ServerConfig, error) {
 	)
 
 	configFileNameFlag := pflag.StringP("config", "c", "", "путь к файлу конфигурации")
-	var serverAddrFlag string
-	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	var httpServerAddrFlag string
+	pflag.FuncP("address", "a", httpServerAddrUsage(), httpServerAddrFlagParser(&httpServerAddrFlag))
 	var grpcServerAddrFlag string
 	pflag.FuncP("grpc-address", "", grpcServerAddrUsage(), grpcServerAddrFlagParser(&grpcServerAddrFlag))
+	tlsCertPathFlag := pflag.StringP("tls-cert", "", defaultTLSCertPath, "путь к TLS-сертификату HTTP/gRPC-серверов")
+	tlsKeyPathFlag := pflag.StringP("tls-key", "", defaultTLSKeyPath, "путь к приватному TLS-ключу HTTP/gRPC-серверов")
 	storeIntervalFlag := pflag.IntP(storeIntervalFlagName, "i", defaultStoreInterval, "интервал сохранения метрик на диск (в секундах)")
 	fileStoragePathFlag := pflag.StringP("file-storage-path", "f", "", "путь до файла с метриками")
 	restoreFlag := pflag.BoolP(restoreFlagName, "r", defaultRestore, "восстанавливать метрики из файла при старте")
@@ -119,7 +133,7 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	serverAddr, err := getServerAddr(serverAddrFlag, cfgJSON.ServerAddr)
+	httpServerAddr, err := getHTTPServerAddr(httpServerAddrFlag, cfgJSON.HTTPServerAddr)
 	if err != nil {
 		return cfg, err
 	}
@@ -127,6 +141,8 @@ func GetServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	tlsCertPath := getTLSCertPath(*tlsCertPathFlag, pflag.Lookup("tls-cert").Changed, cfgJSON.TLSCertPath)
+	tlsKeyPath := getTLSKeyPath(*tlsKeyPathFlag, pflag.Lookup("tls-key").Changed, cfgJSON.TLSKeyPath)
 	storeInterval, err := getStoreInterval(*storeIntervalFlag, pflag.Lookup(storeIntervalFlagName).Changed, cfgJSON.StoreInterval)
 	if err != nil {
 		return cfg, err
@@ -150,8 +166,10 @@ func GetServerConfig() (ServerConfig, error) {
 		return cfg, err
 	}
 
-	cfg.ServerAddr = serverAddr
+	cfg.HTTPServerAddr = httpServerAddr
 	cfg.GRPCServerAddr = grpcServerAddr
+	cfg.TLSCertPath = tlsCertPath
+	cfg.TLSKeyPath = tlsKeyPath
 	cfg.StoreInterval = storeInterval
 	cfg.FileStoragePath = fileStoragePath
 	cfg.Restore = restore
@@ -258,27 +276,27 @@ func getDatabaseDSN(databaseDSNFlag, databaseDSNCfgJSON string) (string, error) 
 	return databaseDSNCfgJSON, nil
 }
 
-func getServerAddr(serverAddrFlag, serverAddrCfgJSON string) (string, error) {
-	serverAddrEnvStr, ok := os.LookupEnv("ADDRESS")
-	if !ok && serverAddrFlag != "" {
-		if err := validateServerAddr(serverAddrFlag); err != nil {
+func getHTTPServerAddr(httpServerAddrFlag, httpServerAddrCfgJSON string) (string, error) {
+	httpServerAddrEnvStr, ok := os.LookupEnv("ADDRESS")
+	if !ok && httpServerAddrFlag != "" {
+		if err := validateServerAddr(httpServerAddrFlag); err != nil {
 			return "", err
 		}
-		return serverAddrFlag, nil
+		return httpServerAddrFlag, nil
 	}
-	if !ok && serverAddrCfgJSON != "" {
-		if err := validateServerAddr(serverAddrCfgJSON); err != nil {
+	if !ok && httpServerAddrCfgJSON != "" {
+		if err := validateServerAddr(httpServerAddrCfgJSON); err != nil {
 			return "", err
 		}
-		return serverAddrCfgJSON, nil
+		return httpServerAddrCfgJSON, nil
 	}
 	if !ok {
-		return defaultServerAddr, nil
+		return defaultHTTPServerAddr, nil
 	}
-	if err := validateServerAddr(serverAddrEnvStr); err != nil {
+	if err := validateServerAddr(httpServerAddrEnvStr); err != nil {
 		return "", err
 	}
-	return serverAddrEnvStr, nil
+	return httpServerAddrEnvStr, nil
 }
 
 func getGRPCServerAddr(grpcServerAddrFlag, grpcServerAddrCfgJSON string) (string, error) {
@@ -304,8 +322,8 @@ func getGRPCServerAddr(grpcServerAddrFlag, grpcServerAddrCfgJSON string) (string
 	return grpcServerAddrEnvStr, nil
 }
 
-func serverAddrUsage() string {
-	return fmt.Sprintf(`адрес HTTP-сервера (default "%s")`, defaultServerAddr)
+func httpServerAddrUsage() string {
+	return fmt.Sprintf(`адрес HTTP-сервера (default "%s")`, defaultHTTPServerAddr)
 }
 
 func grpcServerAddrUsage() string {
@@ -316,12 +334,12 @@ func agentGRPCServerAddrUsage() string {
 	return `адрес gRPC-сервера (default "")`
 }
 
-func serverAddrFlagParser(serverAddr *string) func(string) error {
+func httpServerAddrFlagParser(httpServerAddr *string) func(string) error {
 	return func(flagValue string) error {
 		if err := validateServerAddr(flagValue); err != nil {
 			return err
 		}
-		*serverAddr = flagValue
+		*httpServerAddr = flagValue
 		return nil
 	}
 }
@@ -377,16 +395,18 @@ func getAgentGRPCServerAddr(grpcServerAddrFlag, grpcServerAddrCfgJSON string) (s
 // GetAgentConfig парсит файл конфигурации/флаги/переменные окружения и возвращает AgentConfig.
 func GetAgentConfig() (AgentConfig, error) {
 	const (
+		caCertFlagName         = "ca-cert"
 		reportIntervalFlagName = "report-interval"
 		pollIntervalFlagName   = "poll-interval"
 		rateLimitFlagName      = "rate-limit"
 	)
 
 	configFileNameFlag := pflag.StringP("config", "c", "", "путь к файлу конфигурации")
-	var serverAddrFlag string
-	pflag.FuncP("address", "a", serverAddrUsage(), serverAddrFlagParser(&serverAddrFlag))
+	var httpServerAddrFlag string
+	pflag.FuncP("address", "a", httpServerAddrUsage(), httpServerAddrFlagParser(&httpServerAddrFlag))
 	var grpcServerAddrFlag string
 	pflag.FuncP("grpc-address", "", agentGRPCServerAddrUsage(), grpcServerAddrFlagParser(&grpcServerAddrFlag))
+	caCertPathFlag := pflag.StringP(caCertFlagName, "", defaultCACertPath, "путь к CA-сертификату для проверки TLS-сертификата сервера")
 	reportIntervalFlag := pflag.IntP(reportIntervalFlagName, "r", defaultReportInterval, "частота отправки метрик на сервер (в секундах)")
 	pollIntervalFlag := pflag.IntP(pollIntervalFlagName, "p", defaultPollInterval, "частота опроса метрик из пакета runtime (в секундах)")
 	signatureKeyFlag := pflag.StringP("signature-key", "k", "", "ключ для подписи запросов")
@@ -399,7 +419,7 @@ func GetAgentConfig() (AgentConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	serverAddr, err := getServerAddr(serverAddrFlag, cfgJSON.ServerAddr)
+	httpServerAddr, err := getHTTPServerAddr(httpServerAddrFlag, cfgJSON.HTTPServerAddr)
 	if err != nil {
 		return cfg, err
 	}
@@ -407,6 +427,7 @@ func GetAgentConfig() (AgentConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
+	caCertPath := getCACertPath(*caCertPathFlag, pflag.Lookup(caCertFlagName).Changed, cfgJSON.CACertPath)
 	reportInterval, err := getReportInterval(*reportIntervalFlag, pflag.Lookup(reportIntervalFlagName).Changed, cfgJSON.ReportInterval)
 	if err != nil {
 		return cfg, err
@@ -422,8 +443,9 @@ func GetAgentConfig() (AgentConfig, error) {
 		return cfg, err
 	}
 
-	cfg.ServerAddr = serverAddr
+	cfg.HTTPServerAddr = httpServerAddr
 	cfg.GRPCServerAddr = grpcServerAddr
+	cfg.CACertPath = caCertPath
 	cfg.ReportInterval = reportInterval
 	cfg.PollInterval = pollInterval
 	cfg.SignatureKey = signatureKey
@@ -504,6 +526,48 @@ func getCryptoKeyPath(cryptoKeyPathFlag, cryptoKeyPathCfgJSON string) string {
 		return cryptoKeyPathFlag
 	}
 	return cryptoKeyPathCfgJSON
+}
+
+func getTLSCertPath(tlsCertPathFlag string, tlsCertPathFlagChanged bool, tlsCertPathCfgJSON string) string {
+	tlsCertPathEnvStr, ok := os.LookupEnv("TLS_CERT")
+	if ok {
+		return tlsCertPathEnvStr
+	}
+	if tlsCertPathFlagChanged {
+		return tlsCertPathFlag
+	}
+	if tlsCertPathCfgJSON != "" {
+		return tlsCertPathCfgJSON
+	}
+	return defaultTLSCertPath
+}
+
+func getTLSKeyPath(tlsKeyPathFlag string, tlsKeyPathFlagChanged bool, tlsKeyPathCfgJSON string) string {
+	tlsKeyPathEnvStr, ok := os.LookupEnv("TLS_KEY")
+	if ok {
+		return tlsKeyPathEnvStr
+	}
+	if tlsKeyPathFlagChanged {
+		return tlsKeyPathFlag
+	}
+	if tlsKeyPathCfgJSON != "" {
+		return tlsKeyPathCfgJSON
+	}
+	return defaultTLSKeyPath
+}
+
+func getCACertPath(caCertPathFlag string, caCertPathFlagChanged bool, caCertPathCfgJSON string) string {
+	caCertPathEnvStr, ok := os.LookupEnv("CA_CERT")
+	if ok {
+		return caCertPathEnvStr
+	}
+	if caCertPathFlagChanged {
+		return caCertPathFlag
+	}
+	if caCertPathCfgJSON != "" {
+		return caCertPathCfgJSON
+	}
+	return defaultCACertPath
 }
 
 func getAuditFile(auditFileFlag, auditFileCfgJSON string) string {

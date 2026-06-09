@@ -3,6 +3,7 @@ package application
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc/credentials"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/grpcserver"
@@ -25,6 +27,12 @@ import (
 // Storage абстрагирует хранилище метрик.
 type Storage interface {
 	Close() error
+}
+
+type metricStorage interface {
+	Storage
+	httpserver.Storage
+	grpcserver.Storage
 }
 
 // Application связывает конфигурацию, хранилище, аудитора запросов и HTTP/gRPC-сервера в единый сервис.
@@ -47,46 +55,31 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 		return nil, fmt.Errorf("config error: %w", err)
 	}
 
-	type metricStorage interface {
-		Storage
-		httpserver.Storage
-		grpcserver.Storage
+	storage, err := buildStorage(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("storage error: %w", err)
 	}
-	var storage metricStorage
-	switch {
-	case cfg.DatabaseDSN != "":
-		var db *sqlx.DB
-		db, err = sqlx.Connect("pgx", cfg.DatabaseDSN)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to the database: %w", err)
-		}
-		err = applyMigrations(db)
-		if err != nil {
-			return nil, fmt.Errorf("migrations error: %w", err)
-		}
-		storage = repository.NewDBStorage(db)
-	case cfg.FileStoragePath != "":
-		storage, err = repository.NewFileStorage(cfg.FileStoragePath, cfg.Restore)
-		if err != nil {
-			return nil, fmt.Errorf("storage error: %w", err)
-		}
-	default:
-		storage = repository.NewMemStorage()
-	}
+
 	publisher, err := buildAuditPublisher(cfg, logger)
 	if err != nil {
 		return nil, fmt.Errorf("audit publisher error: %w", err)
 	}
-	httpSrv := httpserver.NewHTTPServer(
-		cfg.ServerAddr,
-		storage,
-		publisher,
+
+	tlsCert, err := tls.LoadX509KeyPair(cfg.TLSCertPath, cfg.TLSKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tls certificate: %w", err)
+	}
+	httpSrv := buildHTTPServer(
+		cfg.HTTPServerAddr,
+		tlsCert,
 		cfg.SignatureKey,
 		cfg.CryptoKeyPath,
 		cfg.TrustedSubnet,
+		storage,
+		publisher,
 		logger,
 	)
-	grpcSrv := grpcserver.NewGRPCServer(cfg.GRPCServerAddr, storage, publisher, cfg.TrustedSubnet, logger)
+	grpcSrv := buildGRPCServer(cfg.GRPCServerAddr, tlsCert, cfg.TrustedSubnet, storage, publisher, logger)
 	pprofSrv := httpserver.NewPprofServer(cfg.PprofAddr, logger)
 
 	return &Application{
@@ -98,6 +91,33 @@ func NewApplication(logger zerolog.Logger) (*Application, error) {
 		pprofSrv:       pprofSrv,
 		auditPublisher: publisher,
 	}, nil
+}
+
+func buildStorage(cfg config.ServerConfig) (metricStorage, error) {
+	var (
+		storage metricStorage
+		err     error
+	)
+	switch {
+	case cfg.DatabaseDSN != "":
+		var db *sqlx.DB
+		db, err = sqlx.Connect("pgx", cfg.DatabaseDSN)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to the database: %w", err)
+		}
+		if err = applyMigrations(db); err != nil {
+			return nil, fmt.Errorf("migrations error: %w", err)
+		}
+		storage = repository.NewDBStorage(db)
+	case cfg.FileStoragePath != "":
+		storage, err = repository.NewFileStorage(cfg.FileStoragePath, cfg.Restore)
+		if err != nil {
+			return nil, fmt.Errorf("storage error: %w", err)
+		}
+	default:
+		storage = repository.NewMemStorage()
+	}
+	return storage, nil
 }
 
 func applyMigrations(db *sqlx.DB) error {
@@ -113,6 +133,67 @@ func applyMigrations(db *sqlx.DB) error {
 		return fmt.Errorf("failed to apply migrations: %w", err)
 	}
 	return nil
+}
+
+func buildAuditPublisher(cfg config.ServerConfig, logger zerolog.Logger) (*audit.AsyncPublisher, error) {
+	publisher := audit.NewAsyncPublisher(logger)
+	if cfg.AuditFile != "" {
+		o, err := audit.NewFileObserver(cfg.AuditFile)
+		if err != nil {
+			return nil, err
+		}
+		publisher.Register(o)
+	}
+	if cfg.AuditURL != "" {
+		o := audit.NewHTTPObserver(cfg.AuditURL)
+		publisher.Register(o)
+	}
+	return publisher, nil
+}
+
+func buildHTTPServer(
+	httpServerAddr string,
+	tlsCert tls.Certificate,
+	signatureKey string,
+	cryptoKeyPath string,
+	trustedSubnet string,
+	storage metricStorage,
+	publisher *audit.AsyncPublisher,
+	logger zerolog.Logger,
+) *httpserver.HTTPServer {
+	httpTlsConfig := &tls.Config{Certificates: []tls.Certificate{tlsCert}}
+	httpSrv := httpserver.NewHTTPServer(
+		httpServerAddr,
+		httpTlsConfig,
+		storage,
+		publisher,
+		signatureKey,
+		cryptoKeyPath,
+		trustedSubnet,
+		logger,
+	)
+	return httpSrv
+}
+
+func buildGRPCServer(
+	grpcServerAddr string,
+	tlsCert tls.Certificate,
+	trustedSubnet string,
+	storage metricStorage,
+	publisher *audit.AsyncPublisher,
+	logger zerolog.Logger,
+) *grpcserver.GRPCServer {
+	grpcTlsConfig := &tls.Config{Certificates: []tls.Certificate{tlsCert}}
+	grpcSrvCredentials := credentials.NewTLS(grpcTlsConfig)
+	grpcSrv := grpcserver.NewGRPCServer(
+		grpcServerAddr,
+		grpcSrvCredentials,
+		storage,
+		publisher,
+		trustedSubnet,
+		logger,
+	)
+	return grpcSrv
 }
 
 // Run запускает основные подсистемы сервиса и блокируется, пока не отменен контекст или один из серверов не
@@ -176,20 +257,4 @@ func (app *Application) Close() {
 	if err := app.auditPublisher.Close(); err != nil {
 		app.logger.Error().Msg(err.Error())
 	}
-}
-
-func buildAuditPublisher(cfg config.ServerConfig, logger zerolog.Logger) (*audit.AsyncPublisher, error) {
-	publisher := audit.NewAsyncPublisher(logger)
-	if cfg.AuditFile != "" {
-		o, err := audit.NewFileObserver(cfg.AuditFile)
-		if err != nil {
-			return nil, err
-		}
-		publisher.Register(o)
-	}
-	if cfg.AuditURL != "" {
-		o := audit.NewHTTPObserver(cfg.AuditURL)
-		publisher.Register(o)
-	}
-	return publisher, nil
 }

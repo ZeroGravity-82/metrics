@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -33,6 +34,7 @@ type Storage interface {
 // Он запускает роутер, собранный handler.MetricRouter, на указанном адресе.
 type HTTPServer struct {
 	addr           string
+	tlsConfig      *tls.Config
 	storage        Storage
 	auditPublisher *audit.AsyncPublisher
 	signatureKey   string
@@ -44,6 +46,7 @@ type HTTPServer struct {
 // NewHTTPServer создает новый HTTPServer.
 func NewHTTPServer(
 	addr string,
+	tlsConfig *tls.Config,
 	storage Storage,
 	auditPublisher *audit.AsyncPublisher,
 	signatureKey string,
@@ -53,6 +56,7 @@ func NewHTTPServer(
 ) *HTTPServer {
 	return &HTTPServer{
 		addr:           addr,
+		tlsConfig:      tlsConfig,
 		storage:        storage,
 		auditPublisher: auditPublisher,
 		signatureKey:   signatureKey,
@@ -65,7 +69,8 @@ func NewHTTPServer(
 // Run запускает HTTP-сервер и блокируется, пока не отменен контекст или сервер не остановится с ошибкой.
 func (s *HTTPServer) Run(ctx context.Context) error {
 	srv := http.Server{
-		Addr: s.addr,
+		Addr:      s.addr,
+		TLSConfig: s.tlsConfig,
 		Handler: handler.MetricRouter(
 			s.storage,
 			s.auditPublisher,
@@ -80,7 +85,7 @@ func (s *HTTPServer) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
 		s.logger.Info().Str("address", s.addr).Msg("starting http server")
-		errCh <- srv.ListenAndServe()
+		errCh <- srv.ListenAndServeTLS("", "")
 	}()
 
 	select {

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,13 +24,23 @@ var (
 func main() {
 	buildinfo.Print(buildVersion, buildDate, buildCommit)
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+
+	if err := run(logger); err != nil {
+		logger.Fatal().Err(err).Msg("Agent terminated with error")
+	}
+}
+
+func run(logger zerolog.Logger) error {
 	cfg, err := config.GetAgentConfig()
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Config error")
+		return fmt.Errorf("config error: %w", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	defer stop()
 
-	agent.Run(ctx, cfg, logger)
+	if err = agent.Run(ctx, cfg, logger); err != nil {
+		return fmt.Errorf("execution error: %w", err)
+	}
+	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
@@ -31,6 +32,7 @@ type Storage interface {
 // GRPCServer - дополнительный API-сервер сервиса метрик.
 type GRPCServer struct {
 	addr           string
+	creds          credentials.TransportCredentials
 	storage        Storage
 	auditPublisher *audit.AsyncPublisher
 	trustedSubnet  string
@@ -40,6 +42,7 @@ type GRPCServer struct {
 // NewGRPCServer создает новый GRPCServer.
 func NewGRPCServer(
 	addr string,
+	creds credentials.TransportCredentials,
 	storage Storage,
 	auditPublisher *audit.AsyncPublisher,
 	trustedSubnet string,
@@ -47,6 +50,7 @@ func NewGRPCServer(
 ) *GRPCServer {
 	return &GRPCServer{
 		addr:           addr,
+		creds:          creds,
 		storage:        storage,
 		auditPublisher: auditPublisher,
 		trustedSubnet:  trustedSubnet,
@@ -105,7 +109,7 @@ func (s *GRPCServer) Run(ctx context.Context) error {
 		return fmt.Errorf("grpc server error: %w", err)
 	}
 
-	srv := grpc.NewServer(withTrustedSubnet(s.trustedSubnet, s.logger))
+	srv := grpc.NewServer(grpc.Creds(s.creds), withTrustedSubnet(s.trustedSubnet, s.logger))
 	pb.RegisterMetricsServer(srv, service.NewMetricsService(s.storage, s.auditPublisher, s.trustedSubnet, s.logger))
 
 	errCh := make(chan error, 1)

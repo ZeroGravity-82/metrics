@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"testing"
 
@@ -24,9 +25,11 @@ func TestHTTPServer_Run_AddressInUse(t *testing.T) {
 	signatureKey := "secret"
 	cryptoKeyPath := ""
 	trustedSubnet := ""
+	tlsConfig := &tls.Config{}
 
 	srv := NewHTTPServer(
 		listener.Addr().String(),
+		tlsConfig,
 		memStorage,
 		publisher,
 		signatureKey,
