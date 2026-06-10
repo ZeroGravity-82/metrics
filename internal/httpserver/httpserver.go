@@ -12,7 +12,6 @@ import (
 
 	"zerogravity-82/metrics/internal/httpserver/handler"
 	"zerogravity-82/metrics/internal/model"
-	"zerogravity-82/metrics/internal/service/audit"
 )
 
 const (
@@ -29,6 +28,11 @@ type Storage interface {
 	Ping(ctx context.Context) error
 }
 
+// AuditPublisher публикует события аудита об успешных обновлениях метрик.
+type AuditPublisher interface {
+	PublishLog(ctx context.Context, now time.Time, ip string, models ...model.Metrics)
+}
+
 // HTTPServer - основной API-сервер сервиса метрик.
 //
 // Он запускает роутер, собранный handler.MetricRouter, на указанном адресе.
@@ -36,7 +40,7 @@ type HTTPServer struct {
 	addr           string
 	tlsConfig      *tls.Config
 	storage        Storage
-	auditPublisher *audit.AsyncPublisher
+	auditPublisher AuditPublisher
 	signatureKey   string
 	cryptoKeyPath  string
 	trustedSubnet  string
@@ -48,7 +52,7 @@ func NewHTTPServer(
 	addr string,
 	tlsConfig *tls.Config,
 	storage Storage,
-	auditPublisher *audit.AsyncPublisher,
+	auditPublisher AuditPublisher,
 	signatureKey string,
 	cryptoKeyPath string,
 	trustedSubnet string,

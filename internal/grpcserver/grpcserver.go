@@ -17,7 +17,6 @@ import (
 	"zerogravity-82/metrics/internal/grpcserver/service"
 	"zerogravity-82/metrics/internal/model"
 	pb "zerogravity-82/metrics/internal/proto"
-	"zerogravity-82/metrics/internal/service/audit"
 )
 
 const (
@@ -29,12 +28,17 @@ type Storage interface {
 	UpdateMetrics(ctx context.Context, metrics []model.Metrics) error
 }
 
+// AuditPublisher публикует события аудита об успешных обновлениях метрик.
+type AuditPublisher interface {
+	PublishLog(ctx context.Context, now time.Time, ip string, models ...model.Metrics)
+}
+
 // GRPCServer - дополнительный API-сервер сервиса метрик.
 type GRPCServer struct {
 	addr           string
 	creds          credentials.TransportCredentials
 	storage        Storage
-	auditPublisher *audit.AsyncPublisher
+	auditPublisher AuditPublisher
 	trustedSubnet  string
 	logger         zerolog.Logger
 }
@@ -44,7 +48,7 @@ func NewGRPCServer(
 	addr string,
 	creds credentials.TransportCredentials,
 	storage Storage,
-	auditPublisher *audit.AsyncPublisher,
+	auditPublisher AuditPublisher,
 	trustedSubnet string,
 	logger zerolog.Logger,
 ) *GRPCServer {
