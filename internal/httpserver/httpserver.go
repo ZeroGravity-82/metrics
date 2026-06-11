@@ -106,14 +106,12 @@ func (s *HTTPServer) Run(ctx context.Context) error {
 			s.logger.Info().Msg("http server stopped with graceful shutdown")
 			return nil
 		}
-		s.logger.Error().Err(err).Msg("http server stopped with error")
 		return fmt.Errorf("http server stopped with error: %w", err)
 	case err := <-errCh:
 		if err == nil || errors.Is(err, http.ErrServerClosed) {
 			s.logger.Info().Msg("http server closed")
 			return nil
 		}
-		s.logger.Error().Err(err).Msg("http server failed with error")
 		return fmt.Errorf("http server error: %w", err)
 	}
 }

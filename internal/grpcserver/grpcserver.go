@@ -129,14 +129,12 @@ func (s *GRPCServer) Run(ctx context.Context) error {
 			s.logger.Info().Msg("grpc server stopped with graceful shutdown")
 			return nil
 		}
-		s.logger.Error().Err(err).Msg("grpc server stopped with error")
 		return fmt.Errorf("grpc server stopped with error: %w", err)
 	case err := <-errCh:
 		if err == nil || errors.Is(err, grpc.ErrServerStopped) {
 			s.logger.Info().Msg("grpc server stopped")
 			return nil
 		}
-		s.logger.Error().Err(err).Msg("grpc server failed with error")
 		return fmt.Errorf("grpc server error: %w", err)
 	}
 }
