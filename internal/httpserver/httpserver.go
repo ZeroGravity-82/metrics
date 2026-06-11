@@ -35,7 +35,7 @@ type AuditPublisher interface {
 
 // HTTPServer - основной API-сервер сервиса метрик.
 //
-// Он запускает роутер, собранный handler.MetricRouter, на указанном адресе.
+// Он запускает роутер, собранный handler.NewMetricRouter, на указанном адресе.
 type HTTPServer struct {
 	addr           string
 	tlsConfig      *tls.Config
@@ -72,17 +72,21 @@ func NewHTTPServer(
 
 // Run запускает HTTP-сервер и блокируется, пока не отменен контекст или сервер не остановится с ошибкой.
 func (s *HTTPServer) Run(ctx context.Context) error {
+	router, err := handler.NewMetricRouter(
+		s.storage,
+		s.auditPublisher,
+		s.signatureKey,
+		s.cryptoKeyPath,
+		s.trustedSubnet,
+		s.logger,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to build metric router: %w", err)
+	}
 	srv := http.Server{
-		Addr:      s.addr,
-		TLSConfig: s.tlsConfig,
-		Handler: handler.MetricRouter(
-			s.storage,
-			s.auditPublisher,
-			s.signatureKey,
-			s.cryptoKeyPath,
-			s.trustedSubnet,
-			s.logger,
-		),
+		Addr:              s.addr,
+		TLSConfig:         s.tlsConfig,
+		Handler:           router,
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 

@@ -90,7 +90,12 @@ func ExampleMetricRouter_updateValueText() {
 	cryptoKeyPath := ""
 	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/update/gauge/RandomValue/123.45", http.NoBody)
@@ -120,7 +125,12 @@ func ExampleMetricRouter_getValueText() {
 	cryptoKeyPath := ""
 	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/value/counter/PollCount", http.NoBody)
@@ -143,7 +153,12 @@ func ExampleMetricRouter_updateValueJSON() {
 	cryptoKeyPath := ""
 	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: func() *int64 { v := int64(5); return &v }()}
@@ -170,7 +185,12 @@ func ExampleMetricRouter_updatesValuesJSON() {
 	cryptoKeyPath := ""
 	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []model.Metrics{
@@ -200,7 +220,12 @@ func ExampleMetricRouter_updatesValuesJSON_signed() {
 	cryptoKeyPath := ""
 	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []model.Metrics{
@@ -239,7 +264,12 @@ func ExampleMetricRouter_updatesValuesJSON_encrypted() {
 	defer os.Remove(privateKeyPath)
 	defer os.Remove(publicKeyPath)
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, privateKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, privateKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []model.Metrics{
@@ -277,7 +307,12 @@ func ExampleMetricRouter_getValueJSON() {
 	cryptoKeyPath := ""
 	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := model.Metrics{ID: "RandomValue", MType: model.Gauge}
@@ -305,7 +340,12 @@ func ExampleMetricRouter_ping() {
 	cryptoKeyPath := ""
 	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/ping", http.NoBody)

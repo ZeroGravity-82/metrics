@@ -130,7 +130,10 @@ func BenchmarkMetricRouter_UpdateRoute(b *testing.B) {
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	r, err := NewMetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		b.Fatalf("failed to build metric router: %v", err)
+	}
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
 
@@ -154,7 +157,10 @@ func BenchmarkMetricRouter_UpdateRoute_GzipIn_GzipOut(b *testing.B) {
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	r, err := NewMetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		b.Fatalf("failed to build metric router: %v", err)
+	}
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
 	gzPayload := gzipBody(payload)
@@ -188,7 +194,10 @@ func BenchmarkMetricRouter_UpdateRoute_WithSignature(b *testing.B) {
 	signatureKey := "secret"
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	r, err := NewMetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		b.Fatalf("failed to build metric router: %v", err)
+	}
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
 	sig := hex.EncodeToString(generateSignature(payload, signatureKey))
@@ -213,7 +222,10 @@ func BenchmarkMetricRouter_UpdateRoute_WithEncryption(b *testing.B) {
 	signatureKey := ""
 	privateKeyPath, publicKeyPath := writeBenchmarkRSAKeyPair(b)
 	trustedSubnet := ""
-	r := MetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, privateKeyPath, trustedSubnet, logger)
+	r, err := NewMetricRouter(nopStorage{}, nopAuditPublisher{}, signatureKey, privateKeyPath, trustedSubnet, logger)
+	if err != nil {
+		b.Fatalf("failed to build metric router: %v", err)
+	}
 
 	payload := []byte(`{"id":"PollCounter","type":"counter","delta":145}`)
 	encryptedData, encryptedKey, err := encryption.Encrypt(payload, publicKeyPath)

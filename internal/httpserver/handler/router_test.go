@@ -31,7 +31,9 @@ func TestUpdateMetricHandler(t *testing.T) {
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -180,7 +182,9 @@ func TestUpdateHandler(t *testing.T) {
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -351,7 +355,9 @@ func TestUpdatesHandler(t *testing.T) {
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -510,7 +516,9 @@ func TestGetMetricHandler(t *testing.T) {
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -605,7 +613,9 @@ func TestGetHandler(t *testing.T) {
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -730,7 +740,9 @@ func TestGetMetricListHandler(t *testing.T) {
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -797,7 +809,9 @@ func TestPingHandler(t *testing.T) {
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	ts := httptest.NewServer(MetricRouter(ds, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ds, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -854,7 +868,9 @@ func TestMetricRouter_FailsFastWhenEncryptedHeaderWithoutServerKey(t *testing.T)
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []byte(`{"id":"PollCount","type":"counter","delta":1}`)
@@ -888,7 +904,9 @@ func TestMetricRouter_FailsFastWhenSignatureHeaderWithoutServerKey(t *testing.T)
 	signatureKey := ""
 	cryptoKeyPath := ""
 	trustedSubnet := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []byte(`{"id":"PollCount","type":"counter","delta":1}`)
@@ -970,7 +988,9 @@ func newMetricRouterTrustedSubnetRequest(t *testing.T, trustedSubnet, realIP str
 	a := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger))
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)
 
 	urlPath, err := url.JoinPath(ts.URL, "/update")

@@ -62,17 +62,12 @@ func NewGRPCServer(
 	}
 }
 
-func withTrustedSubnet(trustedSubnetStr string, logger zerolog.Logger) grpc.ServerOption {
+func newTrustedSubnetServerOption(trustedSubnetStr string) (grpc.ServerOption, error) {
 	const realIpMetadataKey = "x-real-ip"
-	var (
-		trustedSubnet *net.IPNet
-		err           error
-	)
-	if trustedSubnetStr != "" {
-		_, trustedSubnet, err = net.ParseCIDR(trustedSubnetStr)
-		if err != nil {
-			logger.Error().Err(err).Str("subnet", trustedSubnetStr).Msg("invalid trusted subnet")
-		}
+
+	_, trustedSubnet, err := net.ParseCIDR(trustedSubnetStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid trusted subnet %q: %w", trustedSubnetStr, err)
 	}
 
 	return grpc.UnaryInterceptor(func(ctx context.Context,
@@ -80,12 +75,6 @@ func withTrustedSubnet(trustedSubnetStr string, logger zerolog.Logger) grpc.Serv
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (resp any, err error) {
-		if trustedSubnetStr == "" {
-			return handler(ctx, req)
-		}
-		if trustedSubnet == nil {
-			return nil, status.Error(codes.Internal, "Internal server error")
-		}
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
 			return nil, status.Error(codes.PermissionDenied, "metadata is not provided")
@@ -102,19 +91,27 @@ func withTrustedSubnet(trustedSubnetStr string, logger zerolog.Logger) grpc.Serv
 			return nil, status.Error(codes.PermissionDenied, "your IP is not in the trusted subnet")
 		}
 		return handler(ctx, req)
-	})
+	}), nil
 }
 
 // Run запускает GRPC-сервер и блокируется, пока не отменен контекст или сервер не остановится с ошибкой.
 func (s *GRPCServer) Run(ctx context.Context) error {
+	var opts []grpc.ServerOption
+	if s.trustedSubnet != "" {
+		trustedSubnetOpt, err := newTrustedSubnetServerOption(s.trustedSubnet)
+		if err != nil {
+			return fmt.Errorf("trusted subnet interceptor error: %w", err)
+		}
+		opts = append(opts, trustedSubnetOpt)
+	}
+	opts = append(opts, grpc.Creds(s.creds))
+
 	listen, err := net.Listen("tcp", s.addr)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("grpc server failed with error")
 		return fmt.Errorf("grpc server error: %w", err)
 	}
-
-	srv := grpc.NewServer(grpc.Creds(s.creds), withTrustedSubnet(s.trustedSubnet, s.logger))
-	pb.RegisterMetricsServer(srv, service.NewMetricsService(s.storage, s.auditPublisher, s.trustedSubnet, s.logger))
+	srv := grpc.NewServer(opts...)
+	pb.RegisterMetricsServer(srv, service.NewMetricsService(s.storage, s.auditPublisher, s.logger))
 
 	errCh := make(chan error, 1)
 	go func() {
