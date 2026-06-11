@@ -48,7 +48,7 @@ func TestMetricsService_UpdateMetrics_CanUpdateBatchAndPublishAudit(t *testing.T
 	// Arrange
 	storage := &storageStub{}
 	auditPublisher := &auditPublisherStub{}
-	service := NewMetricsService(storage, auditPublisher, "", zerolog.Nop())
+	service := NewMetricsService(storage, auditPublisher, zerolog.Nop())
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-real-ip", "192.168.1.10"))
 	req := pb.UpdateMetricsRequest_builder{Metrics: []*pb.Metric{
 		pb.Metric_builder{Id: "PollCount", Type: pb.Metric_COUNTER, Delta: 5}.Build(),
@@ -85,7 +85,7 @@ func TestMetricsService_UpdateMetrics_ReturnsInvalidArgumentForUnsupportedMetric
 	// Arrange
 	storage := &storageStub{}
 	auditPublisher := &auditPublisherStub{}
-	service := NewMetricsService(storage, auditPublisher, "", zerolog.Nop())
+	service := NewMetricsService(storage, auditPublisher, zerolog.Nop())
 	req := pb.UpdateMetricsRequest_builder{Metrics: []*pb.Metric{
 		pb.Metric_builder{Id: "BrokenMetric", Type: pb.Metric_MType(99)}.Build(),
 	}}.Build()
@@ -142,7 +142,7 @@ func TestMetricsService_UpdateMetrics_MapsStorageErrorsToGRPCCodes(t *testing.T)
 			// Arrange
 			storage := &storageStub{err: tt.err}
 			auditPublisher := &auditPublisherStub{}
-			service := NewMetricsService(storage, auditPublisher, "", zerolog.Nop())
+			service := NewMetricsService(storage, auditPublisher, zerolog.Nop())
 			req := pb.UpdateMetricsRequest_builder{Metrics: []*pb.Metric{
 				pb.Metric_builder{Id: "PollCount", Type: pb.Metric_COUNTER, Delta: 1}.Build(),
 			}}.Build()

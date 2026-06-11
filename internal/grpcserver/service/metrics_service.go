@@ -27,18 +27,16 @@ type AuditPublisher interface {
 
 type MetricsService struct {
 	pb.UnimplementedMetricsServer
-	s             Storage
-	a             AuditPublisher
-	trustedSubnet string
-	logger        zerolog.Logger
+	s      Storage
+	a      AuditPublisher
+	logger zerolog.Logger
 }
 
-func NewMetricsService(s Storage, a AuditPublisher, trustedSubnet string, logger zerolog.Logger) *MetricsService {
+func NewMetricsService(s Storage, a AuditPublisher, logger zerolog.Logger) *MetricsService {
 	return &MetricsService{
-		s:             s,
-		a:             a,
-		trustedSubnet: trustedSubnet,
-		logger:        logger,
+		s:      s,
+		a:      a,
+		logger: logger,
 	}
 }
 
