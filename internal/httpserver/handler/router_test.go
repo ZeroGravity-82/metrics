@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"zerogravity-82/metrics/internal/encryption"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jmoiron/sqlx"
@@ -18,18 +17,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"zerogravity-82/metrics/internal/encryption"
 	"zerogravity-82/metrics/internal/model"
 	"zerogravity-82/metrics/internal/repository"
 	"zerogravity-82/metrics/internal/service/audit"
 )
-
-func int64Pointer(v int64) *int64 {
-	return &v
-}
-
-func float64Pointer(v float64) *float64 {
-	return &v
-}
 
 func TestUpdateMetricHandler(t *testing.T) {
 	// Arrange
@@ -38,7 +30,10 @@ func TestUpdateMetricHandler(t *testing.T) {
 	a := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
+	trustedSubnet := ""
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -186,7 +181,10 @@ func TestUpdateHandler(t *testing.T) {
 	a := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
+	trustedSubnet := ""
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -310,8 +308,8 @@ func TestUpdateHandler(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: new(int64(777))})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: new(float64(12345))})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -356,7 +354,10 @@ func TestUpdatesHandler(t *testing.T) {
 	a := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
+	trustedSubnet := ""
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -480,8 +481,8 @@ func TestUpdatesHandler(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: new(int64(777))})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: new(float64(12345))})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -514,7 +515,10 @@ func TestGetMetricHandler(t *testing.T) {
 	a := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
+	trustedSubnet := ""
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -575,8 +579,8 @@ func TestGetMetricHandler(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: new(int64(777))})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: new(float64(12345))})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -608,7 +612,10 @@ func TestGetHandler(t *testing.T) {
 	a := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
+	trustedSubnet := ""
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -694,8 +701,8 @@ func TestGetHandler(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777)})
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12345)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: new(int64(777))})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: new(float64(12345))})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -732,7 +739,10 @@ func TestGetMetricListHandler(t *testing.T) {
 	a := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
-	ts := httptest.NewServer(MetricRouter(ms, a, signatureKey, cryptoKeyPath, logger))
+	trustedSubnet := ""
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -752,12 +762,12 @@ func TestGetMetricListHandler(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "Alloc", MType: model.Gauge, Value: float64Pointer(310552)})
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "BuckHashSys", MType: model.Gauge, Value: float64Pointer(3342)})
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "OtherSys", MType: model.Gauge, Value: float64Pointer(606658)})
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(777777777777777)})
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(3685246675)})
-	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "GCCPUFraction", MType: model.Gauge, Value: float64Pointer(0.00000012345678912345)})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "Alloc", MType: model.Gauge, Value: new(float64(310552))})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "BuckHashSys", MType: model.Gauge, Value: new(float64(3342))})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "OtherSys", MType: model.Gauge, Value: new(float64(606658))})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "PollCount", MType: model.Counter, Delta: new(int64(777777777777777))})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: new(float64(3685246675))})
+	_ = ms.UpdateMetric(ctx, model.Metrics{ID: "GCCPUFraction", MType: model.Gauge, Value: new(float64(0.00000012345678912345))})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -798,7 +808,10 @@ func TestPingHandler(t *testing.T) {
 	a := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
-	ts := httptest.NewServer(MetricRouter(ds, a, signatureKey, cryptoKeyPath, logger))
+	trustedSubnet := ""
+	router, err := NewMetricRouter(ds, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	tests := []struct {
@@ -852,7 +865,12 @@ func TestMetricRouter_FailsFastWhenEncryptedHeaderWithoutServerKey(t *testing.T)
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	ts := httptest.NewServer(MetricRouter(ms, a, "", "", logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	trustedSubnet := ""
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []byte(`{"id":"PollCount","type":"counter","delta":1}`)
@@ -883,7 +901,12 @@ func TestMetricRouter_FailsFastWhenSignatureHeaderWithoutServerKey(t *testing.T)
 	logger := zerolog.Nop()
 	ms := repository.NewMemStorage()
 	a := audit.NewAsyncPublisher(logger)
-	ts := httptest.NewServer(MetricRouter(ms, a, "", "", logger))
+	signatureKey := ""
+	cryptoKeyPath := ""
+	trustedSubnet := ""
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []byte(`{"id":"PollCount","type":"counter","delta":1}`)
@@ -906,4 +929,127 @@ func TestMetricRouter_FailsFastWhenSignatureHeaderWithoutServerKey(t *testing.T)
 	// Assert
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	assert.Contains(t, string(body), "server signature key is not configured")
+}
+
+// TestMetricRouter_TrustedSubnet проверяет, что middleware доверенной подсети корректно пропускает и отклоняет запросы.
+func TestMetricRouter_TrustedSubnet(t *testing.T) {
+	// Arrange
+	tests := []struct {
+		name           string
+		trustedSubnet  string
+		realIP         string
+		wantStatusCode int
+		wantBody       string
+	}{
+		{
+			name:           "allow when ip belongs to trusted subnet",
+			trustedSubnet:  "192.168.1.0/24",
+			realIP:         "192.168.1.10",
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name:           "forbid when ip is outside trusted subnet",
+			trustedSubnet:  "192.168.1.0/24",
+			realIP:         "10.0.0.1",
+			wantStatusCode: http.StatusForbidden,
+			wantBody:       "your IP is not in the trusted subnet",
+		},
+		{
+			name:           "allow when trusted subnet is empty",
+			trustedSubnet:  "",
+			realIP:         "10.0.0.1",
+			wantStatusCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			trustedSubnet := tt.trustedSubnet
+			realIP := tt.realIP
+
+			// Act
+			resp, body := newMetricRouterTrustedSubnetRequest(t, trustedSubnet, realIP)
+
+			// Assert
+			assert.Equal(t, tt.wantStatusCode, resp.StatusCode)
+			if tt.wantBody != "" {
+				assert.Contains(t, body, tt.wantBody)
+			}
+		})
+	}
+}
+
+func newMetricRouterTrustedSubnetRequest(t *testing.T, trustedSubnet, realIP string) (*http.Response, string) {
+	t.Helper() // нужен, чтобы место ошибки require.NoError отображалось в тестовых функциях, а не в этом хелпере.
+
+	logger := zerolog.Nop()
+	ms := repository.NewMemStorage()
+	a := audit.NewAsyncPublisher(logger)
+	signatureKey := ""
+	cryptoKeyPath := ""
+	router, err := NewMetricRouter(ms, a, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	require.NoError(t, err)
+	ts := httptest.NewServer(router)
+	t.Cleanup(ts.Close)
+
+	urlPath, err := url.JoinPath(ts.URL, "/update")
+	require.NoError(t, err)
+	req, err := http.NewRequest(
+		http.MethodPost,
+		urlPath,
+		bytes.NewReader([]byte(`{"id":"PollCount","type":"counter","delta":1}`)),
+	)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	if realIP != "" {
+		req.Header.Set("X-Real-IP", realIP)
+	}
+
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = resp.Body.Close()
+	})
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp, string(body)
+}
+
+// TestMetricRouter_TrustedSubnetHeaderValidation проверяет ошибки отсутствующего и некорректного заголовка X-Real-IP.
+func TestMetricRouter_TrustedSubnetHeaderValidation(t *testing.T) {
+	// Arrange
+	tests := []struct {
+		name           string
+		realIP         string
+		wantStatusCode int
+		wantBody       string
+	}{
+		{
+			name:           "forbid when x-real-ip header is missing",
+			wantStatusCode: http.StatusForbidden,
+			wantBody:       "header X-Real-IP is not provided",
+		},
+		{
+			name:           "bad request when x-real-ip header is invalid",
+			realIP:         "not-an-ip",
+			wantStatusCode: http.StatusBadRequest,
+			wantBody:       "invalid header X-Real-IP format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			realIP := tt.realIP
+
+			// Act
+			resp, body := newMetricRouterTrustedSubnetRequest(t, "192.168.1.0/24", realIP)
+
+			// Assert
+			assert.Equal(t, tt.wantStatusCode, resp.StatusCode)
+			assert.Contains(t, body, tt.wantBody)
+		})
+	}
 }

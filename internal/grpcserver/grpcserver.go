@@ -1,0 +1,160 @@
+package grpcserver
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"time"
+
+	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+
+	"zerogravity-82/metrics/internal/grpcserver/service"
+	"zerogravity-82/metrics/internal/model"
+	pb "zerogravity-82/metrics/internal/proto"
+)
+
+const (
+	shutdownTimeout = 10 * time.Second
+)
+
+// Storage абстрагирует хранилище метрик.
+type Storage interface {
+	UpdateMetrics(ctx context.Context, metrics []model.Metrics) error
+}
+
+// AuditPublisher публикует события аудита об успешных обновлениях метрик.
+type AuditPublisher interface {
+	PublishLog(ctx context.Context, now time.Time, ip string, models ...model.Metrics)
+}
+
+// GRPCServer - дополнительный API-сервер сервиса метрик.
+type GRPCServer struct {
+	addr           string
+	creds          credentials.TransportCredentials
+	storage        Storage
+	auditPublisher AuditPublisher
+	trustedSubnet  string
+	logger         zerolog.Logger
+}
+
+// NewGRPCServer создает новый GRPCServer.
+func NewGRPCServer(
+	addr string,
+	creds credentials.TransportCredentials,
+	storage Storage,
+	auditPublisher AuditPublisher,
+	trustedSubnet string,
+	logger zerolog.Logger,
+) *GRPCServer {
+	return &GRPCServer{
+		addr:           addr,
+		creds:          creds,
+		storage:        storage,
+		auditPublisher: auditPublisher,
+		trustedSubnet:  trustedSubnet,
+		logger:         logger,
+	}
+}
+
+func newTrustedSubnetServerOption(trustedSubnetStr string) (grpc.ServerOption, error) {
+	const realIpMetadataKey = "x-real-ip"
+
+	_, trustedSubnet, err := net.ParseCIDR(trustedSubnetStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid trusted subnet %q: %w", trustedSubnetStr, err)
+	}
+
+	return grpc.UnaryInterceptor(func(ctx context.Context,
+		req any,
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (resp any, err error) {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return nil, status.Error(codes.PermissionDenied, "metadata is not provided")
+		}
+		values := md.Get(realIpMetadataKey)
+		if len(values) == 0 {
+			return nil, status.Errorf(codes.PermissionDenied, "metadata value %s is not provided", realIpMetadataKey)
+		}
+		ip := net.ParseIP(values[0])
+		if ip == nil {
+			return nil, status.Errorf(codes.PermissionDenied, "invalid metadata value %s format", realIpMetadataKey)
+		}
+		if !trustedSubnet.Contains(ip) {
+			return nil, status.Error(codes.PermissionDenied, "your IP is not in the trusted subnet")
+		}
+		return handler(ctx, req)
+	}), nil
+}
+
+// Run запускает GRPC-сервер и блокируется, пока не отменен контекст или сервер не остановится с ошибкой.
+func (s *GRPCServer) Run(ctx context.Context) error {
+	var opts []grpc.ServerOption
+	if s.trustedSubnet != "" {
+		trustedSubnetOpt, err := newTrustedSubnetServerOption(s.trustedSubnet)
+		if err != nil {
+			return fmt.Errorf("trusted subnet interceptor error: %w", err)
+		}
+		opts = append(opts, trustedSubnetOpt)
+	}
+	opts = append(opts, grpc.Creds(s.creds))
+
+	listen, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("grpc server error: %w", err)
+	}
+	srv := grpc.NewServer(opts...)
+	pb.RegisterMetricsServer(srv, service.NewMetricsService(s.storage, s.auditPublisher, s.logger))
+
+	errCh := make(chan error, 1)
+	go func() {
+		s.logger.Info().Str("address", s.addr).Msg("starting grpc server")
+		errCh <- srv.Serve(listen)
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		err := s.shutdown(shutdownCtx, srv)
+		if err == nil {
+			s.logger.Info().Msg("grpc server stopped with graceful shutdown")
+			return nil
+		}
+		return fmt.Errorf("grpc server stopped with error: %w", err)
+	case err := <-errCh:
+		if err == nil || errors.Is(err, grpc.ErrServerStopped) {
+			s.logger.Info().Msg("grpc server stopped")
+			return nil
+		}
+		return fmt.Errorf("grpc server error: %w", err)
+	}
+}
+
+// shutdown выполняет graceful shutdown gRPC-сервера и принудительно останавливает его,
+// если переданный контекст завершился раньше, чем GracefulStop.
+func (s *GRPCServer) shutdown(ctx context.Context, srv *grpc.Server) error {
+	doneCh := make(chan struct{})
+
+	go func() {
+		srv.GracefulStop()
+		close(doneCh)
+	}()
+
+	select {
+	case <-ctx.Done():
+		srv.Stop()
+		<-doneCh
+		return fmt.Errorf("graceful shutdown timeout: %w", ctx.Err())
+	case <-doneCh:
+		return nil
+	}
+}

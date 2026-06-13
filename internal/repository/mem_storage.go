@@ -9,8 +9,6 @@ import (
 )
 
 // MemStorage - in-memory реализация хранилища метрик.
-//
-// Реализует интерфейс handler.Storage.
 type MemStorage struct {
 	mu      sync.Mutex
 	metrics map[string]model.Metrics

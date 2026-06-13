@@ -43,6 +43,10 @@ git fetch template && git checkout template/v2 .github
 - **Hexagonal Architecture**
 - **Layered Architecture**
 
+## Локальные TLS-сертификаты
+
+Инструкция по генерации локального сертификата сервера и приватного ключа находится в [certs/tls-certificates.md](./certs/tls-certificates.md).
+
 ## Профилирование памяти (pprof)
 
 В файле [profiles/profiling.md](./profiles/profiling.md) можно найти подробное описание процесса профилирования памяти.

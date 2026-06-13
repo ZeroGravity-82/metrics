@@ -6,13 +6,16 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/url"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -22,10 +25,15 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/encryption"
 	"zerogravity-82/metrics/internal/model"
+	pb "zerogravity-82/metrics/internal/proto"
 )
 
 const requestTimeout = 10 * time.Second
@@ -89,8 +97,7 @@ func (m *metrics) pollMetrics() {
 }
 
 func convertUint64ToGaugeMetric(name string, v uint64) model.Metrics {
-	float64Value := float64(v)
-	return model.Metrics{ID: name, MType: model.Gauge, Value: &float64Value}
+	return model.Metrics{ID: name, MType: model.Gauge, Value: new(float64(v))}
 }
 
 func convertFloat64ToGaugeMetric(name string, v float64) model.Metrics {
@@ -98,8 +105,7 @@ func convertFloat64ToGaugeMetric(name string, v float64) model.Metrics {
 }
 
 func convertUint32ToGaugeMetric(name string, v uint32) model.Metrics {
-	float64Value := float64(v)
-	return model.Metrics{ID: name, MType: model.Gauge, Value: &float64Value}
+	return model.Metrics{ID: name, MType: model.Gauge, Value: new(float64(v))}
 }
 
 func incrementPollCount(m *metrics) {
@@ -158,109 +164,181 @@ func (m *metrics) restorePollCount(delta int64) {
 // Run запускает цикл опроса метрик и периодически отправляет их на сервер.
 //
 // Функция блокируется, пока процесс не будет остановлен.
-func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) {
+func Run(ctx context.Context, cfg config.AgentConfig, logger zerolog.Logger) error {
 	m := newMetrics()
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	eg, groupCtx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
 		ticker := time.NewTicker(time.Duration(cfg.PollInterval))
 		defer ticker.Stop()
 
 		for {
 			select {
-			case <-ctx.Done():
-				return
+			case <-groupCtx.Done():
+				return nil
 			case <-ticker.C:
 				m.pollMetrics()
 			}
 		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	})
+	eg.Go(func() error {
 		ticker := time.NewTicker(time.Duration(cfg.PollInterval))
 		defer ticker.Stop()
 
 		for {
 			select {
-			case <-ctx.Done():
-				return
+			case <-groupCtx.Done():
+				return nil
 			case <-ticker.C:
 				m.pollUtilMetrics(logger)
 			}
 		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	})
+	eg.Go(func() error {
 		ticker := time.NewTicker(time.Duration(cfg.ReportInterval))
 		defer ticker.Stop()
 
 		s := NewSemaphore(cfg.RateLimit)
-		const maxRetries = 3
-		httpClient := resty.New().SetRetryCount(maxRetries).SetRetryAfter(retryAfterFunc())
+
+		send, cleanup, err := buildSendFunc(cfg, logger)
+		if err != nil {
+			return fmt.Errorf("failed to build send function: %w", err)
+		}
+		defer cleanup()
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-groupCtx.Done():
 				mCopy := m.copyMetrics()
 				if *mCopy["PollCount"].Delta > 0 {
-					shutdownCtx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-					defer cancel()
-
-					if err := sendReport(
-						shutdownCtx,
-						cfg.ServerAddr,
-						cfg.SignatureKey,
-						cfg.CryptoKeyPath,
-						mCopy,
-						httpClient,
-					); err != nil && !errors.Is(err, context.Canceled) {
+					if err := send(mCopy); err != nil {
 						logger.Error().Err(err).Msg("Error on sending metrics")
 					}
 				}
-				return
+				return nil
 			case <-ticker.C:
 				select {
-				case <-ctx.Done(): // Защита на случай одновременной отмены контекста и срабатывания тикера.
+				case <-groupCtx.Done(): // Защита на случай одновременной отмены контекста и срабатывания тикера.
 					continue
 				default:
 				}
 
 				s.Acquire()
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				eg.Go(func() error {
 					defer s.Release()
 
-					requestCtx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-					defer cancel()
-
 					mCopy := m.copyMetricsAndResetPollCount()
-					if err := sendReport(
-						requestCtx,
-						cfg.ServerAddr,
-						cfg.SignatureKey,
-						cfg.CryptoKeyPath,
-						mCopy,
-						httpClient,
-					); err != nil {
+					if err := send(mCopy); err != nil {
 						logger.Error().Err(err).Msg("Error on sending metrics")
 
 						// Корректирующее действие, если метрики в итоге не попали на сервер: значение дельты PollCount
 						// возвращается в структуру metrics
 						m.restorePollCount(*mCopy["PollCount"].Delta)
 					}
-				}()
+					return nil
+				})
 			}
 		}
-	}()
-	wg.Wait()
+	})
+	return eg.Wait()
+}
+
+type sendFunc func(metrics map[string]model.Metrics) error
+
+func buildSendFunc(cfg config.AgentConfig, logger zerolog.Logger) (sendFunc, func(), error) {
+	const maxRetries = 3
+
+	caCert, err := os.ReadFile(cfg.CACertPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read ca certificate: %w", err)
+	}
+	caPool := x509.NewCertPool()
+	if ok := caPool.AppendCertsFromPEM(caCert); !ok {
+		return nil, nil, fmt.Errorf("failed to append ca certificate: %w", err)
+	}
+
+	httpClient := resty.New().
+		SetRetryCount(maxRetries).
+		SetRetryAfter(retryAfterFunc()).
+		SetTLSClientConfig(&tls.Config{RootCAs: caPool})
+
+	send := func(metrics map[string]model.Metrics) error {
+		return sendReportHTTP(cfg.HTTPServerAddr, cfg.SignatureKey, cfg.CryptoKeyPath, metrics, httpClient)
+	}
+	if cfg.GRPCServerAddr == "" {
+		return send, func() {}, nil
+	}
+
+	grpcClientCredentials := credentials.NewTLS(&tls.Config{RootCAs: caPool})
+	conn, err := grpc.NewClient(cfg.GRPCServerAddr, grpc.WithTransportCredentials(grpcClientCredentials))
+	if err != nil {
+		return send, func() {}, fmt.Errorf("failed to create grpc client: %w", err)
+	}
+
+	grpcClient := pb.NewMetricsClient(conn)
+	send = func(metrics map[string]model.Metrics) error {
+		return sendReportGRPC(cfg.GRPCServerAddr, metrics, grpcClient)
+	}
+	return send, func() {
+		if err = conn.Close(); err != nil {
+			logger.Error().Err(err).Msg("Error on closing gRPC client connection")
+		}
+	}, nil
+}
+
+func sendReportGRPC(
+	serverAddr string,
+	metrics map[string]model.Metrics,
+	client pb.MetricsClient,
+) error {
+	metricsSlice := make([]model.Metrics, 0, len(metrics))
+	for _, v := range metrics {
+		metricsSlice = append(metricsSlice, v)
+	}
+	return sendMetricsGRPC(serverAddr, metricsSlice, client)
+}
+
+func sendMetricsGRPC(serverAddr string, metrics []model.Metrics, client pb.MetricsClient) error {
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+
+	protoMetrics := make([]*pb.Metric, 0, len(metrics))
+	for _, m := range metrics {
+		protoMetric, err := buildProtoMetric(m)
+		if err != nil {
+			return err
+		}
+		protoMetrics = append(protoMetrics, protoMetric)
+	}
+	ip, err := outboundIPFor(serverAddr)
+	if err != nil {
+		return fmt.Errorf("failed to determine local IP address: %w", err)
+	}
+	ctx = metadata.AppendToOutgoingContext(ctx, "x-real-ip", ip)
+	req := pb.UpdateMetricsRequest_builder{Metrics: protoMetrics}.Build()
+	if _, err = client.UpdateMetrics(ctx, req); err != nil {
+		return fmt.Errorf("failed to send metrics via gRPC: %w", err)
+	}
+	return nil
+}
+
+func buildProtoMetric(m model.Metrics) (*pb.Metric, error) {
+	switch m.MType {
+	case model.Counter:
+		var delta int64
+		if m.Delta != nil {
+			delta = *m.Delta
+		}
+		return pb.Metric_builder{Id: m.ID, Type: pb.Metric_COUNTER, Delta: delta}.Build(), nil
+	case model.Gauge:
+		var value float64
+		if m.Value != nil {
+			value = *m.Value
+		}
+		return pb.Metric_builder{Id: m.ID, Type: pb.Metric_GAUGE, Value: value}.Build(), nil
+	default:
+		return nil, fmt.Errorf("unsupported metric type: %s", m.MType)
+	}
 }
 
 func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Duration, error) {
@@ -279,8 +357,7 @@ func retryAfterFunc() func(client *resty.Client, r *resty.Response) (time.Durati
 	}
 }
 
-func sendReport(
-	ctx context.Context,
+func sendReportHTTP(
 	serverAddr,
 	signatureKey,
 	cryptoKeyPath string,
@@ -291,14 +368,13 @@ func sendReport(
 	for _, v := range metrics {
 		metricsSlice = append(metricsSlice, v)
 	}
-	if err := sendMetrics(ctx, serverAddr, signatureKey, cryptoKeyPath, metricsSlice, httpClient); err != nil {
+	if err := sendMetricsHTTP(serverAddr, signatureKey, cryptoKeyPath, metricsSlice, httpClient); err != nil {
 		return err
 	}
 	return nil
 }
 
-func sendMetrics(
-	ctx context.Context,
+func sendMetricsHTTP(
 	serverAddr,
 	signatureKey,
 	cryptoKeyPath string,
@@ -306,6 +382,9 @@ func sendMetrics(
 	httpClient *resty.Client,
 ) error {
 	const xEncryptedHeaderValue = "aes-gcm+rsa-oaep-sha256"
+
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
 
 	jsonBz, err := marshal(metrics)
 	if err != nil {
@@ -343,9 +422,14 @@ func sendMetrics(
 		r.SetHeader(encryption.XEncryptedHeaderName, xEncryptedHeaderValue)
 		r.SetHeader(encryption.XEncryptedKeyHeaderName, base64.StdEncoding.EncodeToString(encryptedKeyBz))
 	}
+	ip, err := outboundIPFor(serverAddr)
+	if err != nil {
+		return fmt.Errorf("failed to determine local IP address: %w", err)
+	}
+	r.SetHeader("X-Real-IP", ip)
 	_, err = r.Post(urlPath)
 	if err != nil {
-		return fmt.Errorf("failed to send the request: %w", err)
+		return fmt.Errorf("failed to send metrics via HTTP: %w", err)
 	}
 	return nil
 }
@@ -381,13 +465,7 @@ func addDefaultURLSchema(urlPath string) string {
 		host = "localhost"
 	}
 	port := hp[1]
-	urlPrefix := ""
-	if host == "localhost" {
-		urlPrefix = "http://"
-	} else {
-		urlPrefix = "https://"
-	}
-	return urlPrefix + host + ":" + port
+	return "https://" + host + ":" + port
 }
 
 func generateHexEncodedSignature(data []byte, key string) string {
@@ -395,4 +473,35 @@ func generateHexEncodedSignature(data []byte, key string) string {
 	h.Write(data)
 	signature := hex.EncodeToString(h.Sum(nil))
 	return signature
+}
+
+// outboundIPFor определяет локальный IP-адрес, через который агент будет обращаться к целевому серверу.
+//
+// Параметр target может быть HTTP URL вида "http://localhost:8080" или gRPC-адресом без схемы вида "localhost:3201".
+func outboundIPFor(target string) (string, error) {
+	targetAddr := target
+	// Для HTTP URL адрес лежит в u.Host, а gRPC передает обычный host:port без схемы.
+	if strings.Contains(target, "://") {
+		u, err := url.Parse(target)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse URL: %w", err)
+		}
+		targetAddr = u.Host
+	}
+	// Проверяем, что после нормализации остался адрес в формате host:port, пригодный для net.Dial.
+	if _, _, err := net.SplitHostPort(targetAddr); err != nil {
+		return "", fmt.Errorf("failed to parse target host and port: %w", err)
+	}
+	conn, err := net.Dial("udp", targetAddr)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return "", fmt.Errorf("unexpected local address type %T", conn.LocalAddr())
+	}
+
+	return localAddr.IP.String(), nil
 }

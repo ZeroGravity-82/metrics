@@ -10,18 +10,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
-	"zerogravity-82/metrics/internal/encryption"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog"
+
+	"zerogravity-82/metrics/internal/encryption"
 )
 
-// MetricRouter собирает и возвращает HTTP-роутер сервиса метрик.
+// NewMetricRouter собирает и возвращает HTTP-роутер сервиса метрик.
 //
 // Доступные ручки:
 //
@@ -34,7 +36,14 @@ import (
 //	GET  /ping
 //
 // Если key не пустой, включается middleware подписи запросов/ответов.
-func MetricRouter(s Storage, a AuditPublisher, signatureKey, cryptoKeyPath string, logger zerolog.Logger) chi.Router {
+func NewMetricRouter(
+	s Storage,
+	a AuditPublisher,
+	signatureKey,
+	cryptoKeyPath,
+	trustedSubnet string,
+	logger zerolog.Logger,
+) (chi.Router, error) {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.StripSlashes,
@@ -46,18 +55,31 @@ func MetricRouter(s Storage, a AuditPublisher, signatureKey, cryptoKeyPath strin
 	)
 	h := New(s, a, logger)
 
-	textPlainContentType := middleware.AllowContentType("text/plain")
-	r.With(textPlainContentType).Post("/update/{mType}/{mName}/{mValue}", h.updateMetric)
-	r.With(textPlainContentType).Get("/value/{mType}/{mName}", h.getMetric)
-	r.With(textPlainContentType).Get("/", h.getMetricList)
+	updateTextPlainMiddlewares := []func(http.Handler) http.Handler{
+		middleware.AllowContentType("text/plain"),
+	}
+	updateJSONMiddlewares := []func(http.Handler) http.Handler{
+		middleware.AllowContentType("application/json"),
+	}
+	if trustedSubnet != "" {
+		trustedSubnetMiddleware, err := newTrustedSubnetMiddleware(trustedSubnet)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build trusted subnet middleware: %w", err)
+		}
+		updateTextPlainMiddlewares = append(updateTextPlainMiddlewares, trustedSubnetMiddleware)
+		updateJSONMiddlewares = append(updateJSONMiddlewares, trustedSubnetMiddleware)
+	}
 
-	applicationJSONContentType := middleware.AllowContentType("application/json")
-	r.With(applicationJSONContentType).Post("/update", h.update)
-	r.With(applicationJSONContentType).Post("/updates", h.updates)
-	r.With(applicationJSONContentType).Post("/value", h.get)
+	r.With(updateTextPlainMiddlewares...).Post("/update/{mType}/{mName}/{mValue}", h.updateMetric)
+	r.With(middleware.AllowContentType("text/plain")).Get("/value/{mType}/{mName}", h.getMetric)
+	r.With(middleware.AllowContentType("text/plain")).Get("/", h.getMetricList)
+
+	r.With(updateJSONMiddlewares...).Post("/update", h.update)
+	r.With(updateJSONMiddlewares...).Post("/updates", h.updates)
+	r.With(middleware.AllowContentType("application/json")).Post("/value", h.get)
 
 	r.Get("/ping", h.ping)
-	return r
+	return r, nil
 }
 
 func withLogging(logger zerolog.Logger) func(next http.Handler) http.Handler {
@@ -208,4 +230,37 @@ func withEncryption(cryptoKeyPath string) func(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func newTrustedSubnetMiddleware(trustedSubnetStr string) (func(next http.Handler) http.Handler, error) {
+	const realIPHeaderName = "X-Real-IP"
+	var (
+		trustedSubnet *net.IPNet
+		err           error
+	)
+	_, trustedSubnet, err = net.ParseCIDR(trustedSubnetStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse trusted subnet %q: %w", trustedSubnetStr, err)
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			realIPHeader := r.Header.Get(realIPHeaderName)
+			if realIPHeader == "" {
+				http.Error(w, fmt.Sprintf("header %s is not provided", realIPHeaderName), http.StatusForbidden)
+				return
+			}
+
+			ip := net.ParseIP(realIPHeader)
+			if ip == nil {
+				http.Error(w, fmt.Sprintf("invalid header %s format", realIPHeaderName), http.StatusBadRequest)
+				return
+			}
+			if !trustedSubnet.Contains(ip) {
+				http.Error(w, "your IP is not in the trusted subnet", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}, nil
 }

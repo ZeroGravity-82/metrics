@@ -81,15 +81,21 @@ func writeExampleRSAKeyPair() (privateKeyPath, publicKeyPath string, err error) 
 	return privateKeyPath, publicKeyPath, nil
 }
 
-// ExampleMetricRouter_updateValueText показывает работу с ручкой `POST /update/{type}/{name}/{value}`.
-func ExampleMetricRouter_updateValueText() {
+// Example_updateValueText показывает работу с ручкой `POST /update/{type}/{name}/{value}`.
+func Example_updateValueText() {
 	logger := zerolog.Nop()
 	store := repository.NewMemStorage()
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/update/gauge/RandomValue/123.45", http.NoBody)
@@ -106,8 +112,8 @@ func ExampleMetricRouter_updateValueText() {
 	// 200
 }
 
-// ExampleMetricRouter_getValueText показывает работу с ручкой `GET /value/{type}/{name}`.
-func ExampleMetricRouter_getValueText() {
+// Example_getValueText показывает работу с ручкой `GET /value/{type}/{name}`.
+func Example_getValueText() {
 	logger := zerolog.Nop()
 	store := repository.NewMemStorage()
 	auditPublisher := audit.NewAsyncPublisher(logger)
@@ -117,8 +123,14 @@ func ExampleMetricRouter_getValueText() {
 	)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/value/counter/PollCount", http.NoBody)
@@ -132,15 +144,21 @@ func ExampleMetricRouter_getValueText() {
 	// 200 777
 }
 
-// ExampleMetricRouter_updateValueJSON показывает работу с ручкой `POST /update`
-func ExampleMetricRouter_updateValueJSON() {
+// Example_updateValueJSON показывает работу с ручкой `POST /update`
+func Example_updateValueJSON() {
 	logger := zerolog.Nop()
 	store := repository.NewMemStorage()
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := model.Metrics{ID: "PollCount", MType: model.Counter, Delta: func() *int64 { v := int64(5); return &v }()}
@@ -158,15 +176,21 @@ func ExampleMetricRouter_updateValueJSON() {
 	// 200
 }
 
-// ExampleMetricRouter_updatesValuesJSON показывает работу с ручкой `POST /updates`
-func ExampleMetricRouter_updatesValuesJSON() {
+// Example_updatesValuesJSON показывает работу с ручкой `POST /updates`
+func Example_updatesValuesJSON() {
 	logger := zerolog.Nop()
 	store := repository.NewMemStorage()
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []model.Metrics{
@@ -187,15 +211,22 @@ func ExampleMetricRouter_updatesValuesJSON() {
 	// 200
 }
 
-// ExampleMetricRouter_updatesValuesJSON_signed показывает работу с ручкой `POST /updates` при наличии подписи запроса.
-func ExampleMetricRouter_updatesValuesJSON_signed() {
+// Example_updatesValuesJSON_signed показывает работу с ручкой `POST /updates` при наличии подписи
+// запроса.
+func Example_updatesValuesJSON_signed() {
 	logger := zerolog.Nop()
 	store := repository.NewMemStorage()
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := "secret"
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []model.Metrics{
@@ -222,18 +253,24 @@ func ExampleMetricRouter_updatesValuesJSON_signed() {
 	// 200
 }
 
-// ExampleMetricRouter_updatesValuesJSON_encrypted показывает работу с ручкой `POST /updates` при наличии шифрования
+// Example_updatesValuesJSON_encrypted показывает работу с ручкой `POST /updates` при наличии шифрования
 // запроса.
-func ExampleMetricRouter_updatesValuesJSON_encrypted() {
+func Example_updatesValuesJSON_encrypted() {
 	logger := zerolog.Nop()
 	store := repository.NewMemStorage()
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	privateKeyPath, publicKeyPath, _ := writeExampleRSAKeyPair()
+	trustedSubnet := ""
 	defer os.Remove(privateKeyPath)
 	defer os.Remove(publicKeyPath)
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, privateKeyPath, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, privateKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := []model.Metrics{
@@ -258,8 +295,8 @@ func ExampleMetricRouter_updatesValuesJSON_encrypted() {
 	// 200
 }
 
-// ExampleMetricRouter_getValueJSON показывает работу с ручкой `POST /value`
-func ExampleMetricRouter_getValueJSON() {
+// Example_getValueJSON показывает работу с ручкой `POST /value`
+func Example_getValueJSON() {
 	logger := zerolog.Nop()
 	store := repository.NewMemStorage()
 	auditPublisher := audit.NewAsyncPublisher(logger)
@@ -269,8 +306,14 @@ func ExampleMetricRouter_getValueJSON() {
 	)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	payload := model.Metrics{ID: "RandomValue", MType: model.Gauge}
@@ -289,15 +332,21 @@ func ExampleMetricRouter_getValueJSON() {
 	// 200 {"id":"RandomValue","type":"gauge","value":123.45}
 }
 
-// ExampleMetricRouter_ping показывает работу с ручкой `GET /ping`
-func ExampleMetricRouter_ping() {
+// Example_ping показывает работу с ручкой `GET /ping`
+func Example_ping() {
 	logger := zerolog.Nop()
 	store := repository.NewMemStorage()
 	auditPublisher := audit.NewAsyncPublisher(logger)
 	signatureKey := ""
 	cryptoKeyPath := ""
+	trustedSubnet := ""
 
-	ts := httptest.NewServer(MetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, logger))
+	router, err := NewMetricRouter(store, auditPublisher, signatureKey, cryptoKeyPath, trustedSubnet, logger)
+	if err != nil {
+		fmt.Println("router error")
+		return
+	}
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/ping", http.NoBody)

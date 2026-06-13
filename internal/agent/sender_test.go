@@ -6,11 +6,16 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,9 +24,15 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"zerogravity-82/metrics/internal/config"
 	"zerogravity-82/metrics/internal/model"
+	pb "zerogravity-82/metrics/internal/proto"
 )
 
 func int64Pointer(v int64) *int64 {
@@ -30,6 +41,28 @@ func int64Pointer(v int64) *int64 {
 
 func float64Pointer(v float64) *float64 {
 	return &v
+}
+
+func newTLSServerWithAgentCA(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper() // нужен, чтобы место ошибки require.NoError отображалось в тестовых функциях, а не в этом хелпере.
+
+	server := httptest.NewTLSServer(handler)
+	t.Cleanup(server.Close)
+
+	require.NotEmpty(t, server.TLS.Certificates)
+	require.NotEmpty(t, server.TLS.Certificates[0].Certificate)
+
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.MkdirAll("certs", 0o755))
+
+	caCertPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: server.TLS.Certificates[0].Certificate[0],
+	})
+	require.NotNil(t, caCertPEM)
+	require.NoError(t, os.WriteFile("certs/ca.crt", caCertPEM, 0o600))
+
+	return server
 }
 
 // TestPollMetrics проверяет, что pollMetrics() собирает райнтайм-метрики и счетчик опросов.
@@ -151,9 +184,9 @@ func TestCopyMetricsAndResetPollCount(t *testing.T) {
 	assert.NotEqual(t, originalMetrics.data["Alloc"], copiedMetrics["Alloc"]) // Изменение копии не влияет на оригинал
 }
 
-// TestSendReport проверяет, что sendReport() отправляет метрики на endpoint `/updates` и при необходимости подписывает
-// запрос.
-func TestSendReport(t *testing.T) {
+// TestSendReportHTTP проверяет, что sendReport() отправляет метрики на endpoint `/updates` и при необходимости
+// подписывает запрос.
+func TestSendReportHTTP(t *testing.T) {
 	// Arrange
 	sentMetrics := newMetrics()
 	sentMetrics.pollMetrics()
@@ -203,6 +236,8 @@ func TestSendReport(t *testing.T) {
 				} else {
 					assert.Empty(t, r.Header.Get("HashSHA256"))
 				}
+				assert.NotEmpty(t, r.Header.Get("X-Real-IP"))
+				assert.NotNil(t, net.ParseIP(r.Header.Get("X-Real-IP")))
 
 				for _, m := range receivedMetrics {
 					assert.NotContains(t, processedMetricIDs, m.ID) // Гарантирует, что каждая метрика отправлена не более одного раза
@@ -214,7 +249,7 @@ func TestSendReport(t *testing.T) {
 			httpClient := resty.New()
 
 			// Act
-			err := sendReport(context.Background(), server.URL, tt.signatureKey, "", sentMetrics.data, httpClient)
+			err := sendReportHTTP(server.URL, tt.signatureKey, "", sentMetrics.data, httpClient)
 			require.NoError(t, err)
 
 			// Assert
@@ -223,43 +258,176 @@ func TestSendReport(t *testing.T) {
 	}
 }
 
-// TestSendReport_RespectsContextCancellation проверяет, что sendReport() прерывает HTTP-запрос и возвращает ошибку
-// контекста, если дедлайн/отмена наступили до получения ответа сервера.
-func TestSendReport_RespectsContextCancellation(t *testing.T) {
+// TestSendReportGRPC проверяет, что sendReportGRPC() отправляет метрики батчем и добавляет IP агента в метаданные.
+func TestSendReportGRPC(t *testing.T) {
 	// Arrange
-	requestStarted := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		close(requestStarted)
-		time.Sleep(200 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	sentMetrics := newMetrics()
-	sentMetrics.pollMetrics()
-	httpClient := resty.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	// Act
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- sendReport(ctx, server.URL, "", "", sentMetrics.data, httpClient)
-	}()
-
-	// Assert
-	select {
-	case <-requestStarted:
-	case <-time.After(time.Second):
-		t.Fatal("request did not reach test server")
+	receivedCallCh := make(chan grpcUpdateMetricsCall, 1)
+	server := &testMetricsServer{receivedCallCh: receivedCallCh}
+	addr, client, cleanup := newTestGRPCMetricsClient(t, server)
+	defer cleanup()
+	metrics := map[string]model.Metrics{
+		"PollCount":   {ID: "PollCount", MType: model.Counter, Delta: int64Pointer(7)},
+		"RandomValue": {ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(12.5)},
 	}
 
+	// Act
+	err := sendReportGRPC(addr, metrics, client)
+
+	// Assert
+	require.NoError(t, err)
+	var call grpcUpdateMetricsCall
 	select {
-	case err := <-errCh:
-		require.Error(t, err)
-		assert.ErrorIs(t, err, context.DeadlineExceeded)
-	case <-time.After(time.Second):
-		t.Fatal("sendReport did not stop after context cancellation")
+	case call = <-receivedCallCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for gRPC request")
+	}
+	assert.NotEmpty(t, call.md.Get("x-real-ip"))
+	require.NotNil(t, call.req)
+	require.Len(t, call.req.GetMetrics(), 2)
+
+	processedMetricIDs := make([]string, 0, len(call.req.GetMetrics()))
+	receivedMetrics := make(map[string]*pb.Metric)
+	for _, m := range call.req.GetMetrics() {
+		assert.NotContains(t, processedMetricIDs, m.GetId()) // Гарантирует, что каждая метрика отправлена не более одного раза
+		processedMetricIDs = append(processedMetricIDs, m.GetId())
+		receivedMetrics[m.GetId()] = m
+	}
+	require.Contains(t, receivedMetrics, "PollCount")
+	assert.Equal(t, pb.Metric_COUNTER, receivedMetrics["PollCount"].GetType())
+	assert.Equal(t, int64(7), receivedMetrics["PollCount"].GetDelta())
+	require.Contains(t, receivedMetrics, "RandomValue")
+	assert.Equal(t, pb.Metric_GAUGE, receivedMetrics["RandomValue"].GetType())
+	assert.Equal(t, 12.5, receivedMetrics["RandomValue"].GetValue())
+	assert.Equal(t, len(metrics), len(processedMetricIDs))
+}
+
+// TestSendReportGRPC_ClientError проверяет, что sendReportGRPC() возвращает ошибку gRPC-клиента.
+func TestSendReportGRPC_ClientError(t *testing.T) {
+	// Arrange
+	server := &testMetricsServer{err: status.Error(codes.Internal, "server error")}
+	addr, client, cleanup := newTestGRPCMetricsClient(t, server)
+	defer cleanup()
+	metrics := map[string]model.Metrics{
+		"PollCount": {ID: "PollCount", MType: model.Counter, Delta: int64Pointer(1)},
+	}
+
+	// Act
+	err := sendReportGRPC(addr, metrics, client)
+
+	// Assert
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+}
+
+type grpcUpdateMetricsCall struct {
+	req *pb.UpdateMetricsRequest
+	md  metadata.MD
+}
+
+type testMetricsServer struct {
+	pb.UnimplementedMetricsServer
+	receivedCallCh chan<- grpcUpdateMetricsCall
+	err            error
+}
+
+func (s *testMetricsServer) UpdateMetrics(
+	ctx context.Context,
+	req *pb.UpdateMetricsRequest,
+) (*pb.UpdateMetricsResponse, error) {
+	if s.receivedCallCh != nil {
+		md, _ := metadata.FromIncomingContext(ctx)
+		s.receivedCallCh <- grpcUpdateMetricsCall{req: req, md: md}
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &pb.UpdateMetricsResponse{}, nil
+}
+
+func newTestGRPCMetricsClient(t *testing.T, metricsServer pb.MetricsServer) (string, pb.MetricsClient, func()) {
+	t.Helper() // нужен, чтобы место ошибки require.NoError отображалось в тестовых функциях, а не в этом хелпере.
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	tlsServer.Close()
+	require.NotEmpty(t, tlsServer.TLS.Certificates)
+	require.NotEmpty(t, tlsServer.TLS.Certificates[0].Certificate)
+
+	serverCredentials := credentials.NewTLS(&tls.Config{
+		Certificates: tlsServer.TLS.Certificates,
+	})
+	grpcServer := grpc.NewServer(grpc.Creds(serverCredentials))
+	pb.RegisterMetricsServer(grpcServer, metricsServer)
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+
+	caPool := x509.NewCertPool()
+	require.True(t, caPool.AppendCertsFromPEM(pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: tlsServer.TLS.Certificates[0].Certificate[0],
+	})))
+	clientCredentials := credentials.NewTLS(&tls.Config{RootCAs: caPool})
+	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(clientCredentials))
+	require.NoError(t, err)
+
+	cleanup := func() {
+		require.NoError(t, conn.Close())
+		grpcServer.Stop()
+	}
+	return listener.Addr().String(), pb.NewMetricsClient(conn), cleanup
+}
+
+// TestBuildProtoMetric проверяет преобразование внутренней модели метрики в protobuf-модель.
+func TestBuildProtoMetric(t *testing.T) {
+	// Arrange
+	tests := []struct {
+		name      string
+		metric    model.Metrics
+		wantType  pb.Metric_MType
+		wantDelta int64
+		wantValue float64
+		wantErr   bool
+	}{
+		{
+			name:      "counter",
+			metric:    model.Metrics{ID: "PollCount", MType: model.Counter, Delta: int64Pointer(3)},
+			wantType:  pb.Metric_COUNTER,
+			wantDelta: 3,
+		},
+		{
+			name:      "gauge",
+			metric:    model.Metrics{ID: "RandomValue", MType: model.Gauge, Value: float64Pointer(1.5)},
+			wantType:  pb.Metric_GAUGE,
+			wantValue: 1.5,
+		},
+		{
+			name:    "unsupported type",
+			metric:  model.Metrics{ID: "BrokenMetric", MType: "broken"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			got, err := buildProtoMetric(tt.metric)
+
+			// Assert
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tt.metric.ID, got.GetId())
+			assert.Equal(t, tt.wantType, got.GetType())
+			assert.Equal(t, tt.wantDelta, got.GetDelta())
+			assert.Equal(t, tt.wantValue, got.GetValue())
+		})
 	}
 }
 
@@ -267,6 +435,34 @@ func generateSignature(data []byte, key string) []byte {
 	h := hmac.New(sha256.New, []byte(key))
 	h.Write(data)
 	return h.Sum(nil)
+}
+
+// TestOutboundIPFor проверяет, что outboundIPFor() определяет локальный IP.
+func Test_outboundIPFor(t *testing.T) {
+	// Arrange
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer server.Close()
+
+	// Act
+	ip, err := outboundIPFor(server.URL)
+
+	// Assert
+	require.NoError(t, err)
+	assert.NotEmpty(t, ip)
+	assert.NotNil(t, net.ParseIP(ip))
+}
+
+// TestOutboundIPFor_InvalidURL проверяет, что outboundIPFor() возвращает ошибку для некорректного URL.
+func Test_outboundIPFor_InvalidURL(t *testing.T) {
+	// Arrange
+	target := "://bad-url"
+
+	// Act
+	ip, err := outboundIPFor(target)
+
+	// Assert
+	require.Error(t, err)
+	assert.Empty(t, ip)
 }
 
 // TestAddDefaultSchema проверяет, что addDefaultURLSchema() подставляет корректную схему по умолчанию.
@@ -280,12 +476,12 @@ func TestAddDefaultSchema(t *testing.T) {
 		{
 			name:          "localhost",
 			inputURL:      "localhost:8081",
-			wantResultURL: "http://localhost:8081",
+			wantResultURL: "https://localhost:8081",
 		},
 		{
 			name:          "port only",
 			inputURL:      ":8081",
-			wantResultURL: "http://localhost:8081",
+			wantResultURL: "https://localhost:8081",
 		},
 		{
 			name:          "regular IP address",
@@ -353,7 +549,7 @@ func TestRun_GracefulShutdown_FlushesPendingMetrics(t *testing.T) {
 	// Arrange
 	var requestCount atomic.Int32
 	receivedMetricsCh := make(chan []model.Metrics, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTLSServerWithAgentCA(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount.Add(1)
 
 		zr, err := gzip.NewReader(r.Body)
@@ -369,7 +565,6 @@ func TestRun_GracefulShutdown_FlushesPendingMetrics(t *testing.T) {
 
 		receivedMetricsCh <- receivedMetrics
 	}))
-	defer server.Close()
 
 	cfg := mustAgentConfigForTest(t, server.URL, "1h", "50ms", 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -377,9 +572,10 @@ func TestRun_GracefulShutdown_FlushesPendingMetrics(t *testing.T) {
 
 	// Act
 	runDone := make(chan struct{})
+	runErrCh := make(chan error, 1)
 	go func() {
 		defer close(runDone)
-		Run(ctx, cfg, zerolog.Nop())
+		runErrCh <- Run(ctx, cfg, zerolog.Nop())
 	}()
 
 	time.Sleep(200 * time.Millisecond) // Даем агенту время накопить метрики, но не дойти до штатного ReportInterval.
@@ -390,6 +586,7 @@ func TestRun_GracefulShutdown_FlushesPendingMetrics(t *testing.T) {
 	// Assert
 	select {
 	case <-runDone:
+		require.NoError(t, <-runErrCh)
 	case <-time.After(3 * time.Second):
 		t.Fatal("agent did not stop after context cancellation")
 	}
@@ -422,6 +619,7 @@ func mustAgentConfigForTest(
 `)
 	var cfg config.AgentConfig
 	require.NoError(t, json.Unmarshal(cfgJSON, &cfg))
+	cfg.CACertPath = "certs/ca.crt"
 	cfg.RateLimit = rateLimit
 	return cfg
 }
@@ -433,13 +631,12 @@ func TestRun_GracefulShutdown_WaitsForInFlightSend(t *testing.T) {
 	requestStarted := make(chan struct{})
 	releaseResponse := make(chan struct{})
 	var requestStartedOnce atomic.Bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTLSServerWithAgentCA(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if requestStartedOnce.CompareAndSwap(false, true) {
 			close(requestStarted)
 		}
 		<-releaseResponse
 	}))
-	defer server.Close()
 
 	cfg := mustAgentConfigForTest(t, server.URL, "50ms", "10ms", 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -447,9 +644,10 @@ func TestRun_GracefulShutdown_WaitsForInFlightSend(t *testing.T) {
 
 	// Act
 	runDone := make(chan struct{})
+	runErrCh := make(chan error, 1)
 	go func() {
 		defer close(runDone)
-		Run(ctx, cfg, zerolog.Nop())
+		runErrCh <- Run(ctx, cfg, zerolog.Nop())
 	}()
 
 	select {
@@ -462,6 +660,7 @@ func TestRun_GracefulShutdown_WaitsForInFlightSend(t *testing.T) {
 
 	select {
 	case <-runDone:
+		require.NoError(t, <-runErrCh)
 		t.Fatal("agent stopped before in-flight request completed")
 	case <-time.After(150 * time.Millisecond):
 	}
@@ -471,6 +670,7 @@ func TestRun_GracefulShutdown_WaitsForInFlightSend(t *testing.T) {
 	// Assert
 	select {
 	case <-runDone:
+		require.NoError(t, <-runErrCh)
 	case <-time.After(3 * time.Second):
 		t.Fatal("agent did not wait for in-flight request")
 	}
